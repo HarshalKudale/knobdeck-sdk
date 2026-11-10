@@ -96,7 +96,9 @@ An icon is a [Lucide](https://lucide.dev/icons) name (`"play"`), an image file i
 Handlers are `Fn(&Ctx) -> knobdeck_sdk::Result`. `?` works on any `std::error::Error`; an error that
 escapes a handler is logged and sent to the host as an error frame. Invokes for the same instance
 run in order on that instance's worker thread (after the host ack is sent); different instances,
-queries and events run in parallel, so blocking I/O in a handler is fine.
+queries and events run in parallel, so blocking I/O in a handler is fine. When a handler returns
+the runtime sends `done`, and a workflow runs its next step only then, so finish the action's
+effect (keys sent, window moved) before returning.
 
 ```rust
 ctx.set_state("on");            // this instance        ctx.fan_out("on");  // every instance
@@ -208,5 +210,6 @@ Run the sign-in in the setup program; the token is kept as `oauth-token.json` in
 
 One JSON object per line. Host → plugin on stdin: `hello` (first), `sync`, `invoke`, `request`
 (`query` / `wheel`), `event`, `result` (answer to `host_call`), `shutdown`. Plugin → host on stdout:
-`ready` (first), `ack`, `state`, `error`, `result` (answer to `request`), `host_call`, `subscribe`,
-`setup_required`. Unknown types are ignored. The manifest declares `"protocol": 2`.
+`ready` (first), `ack`, `done`, `state`, `error`, `result` (answer to `request`), `host_call`,
+`subscribe`, `setup_required`. Unknown types are ignored. `ready` with `"done": true` promises a
+`done {id}` after each invoke's handler returns; the host then holds a workflow step until it. The manifest declares `"protocol": 2`.

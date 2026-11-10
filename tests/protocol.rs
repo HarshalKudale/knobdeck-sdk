@@ -78,6 +78,7 @@ fn hello_ready_sync_invoke_request_shutdown() {
 
     let ready = h.expect("ready");
     assert_eq!(ready["protocol"], 2);
+    assert_eq!(ready["done"], true);
 
     let mute = knobdeck_sdk::make_full_id("example-rust", "mute");
     let ping = knobdeck_sdk::make_full_id("example-rust", "ping");
@@ -90,6 +91,9 @@ fn hello_ready_sync_invoke_request_shutdown() {
     assert_eq!(h.expect("ack")["id"], "r1");
     let fan = h.expect_where("state", |m| m["action_id"] == mute.as_str());
     assert_eq!((fan["action_id"].as_str(), fan["state"].as_str()), (Some(mute.as_str()), Some("muted")));
+
+    // `done` follows once the handler has returned.
+    assert_eq!(h.expect("done")["id"], "r1");
 
     // ping's handler println!s; that must not reach the protocol stream.
     h.send(json!({"type": "invoke", "id": "r2", "instance_id": "p1", "action_id": ping, "trigger": "press", "inputs": {}}));

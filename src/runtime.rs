@@ -360,7 +360,9 @@ pub(crate) fn run(plugin: Plugin) -> ! {
     if plugin.actions.values().any(|a| a.volatile) {
         wanted.push("focus_changed".into());
     }
-    rt.send(json!({"type": "ready", "protocol": PROTOCOL, "subscribe": normalize(wanted.into_iter())}));
+    // `done`: this runtime reports each invoke's end, so the host's workflows
+    // run the next step only after this one's keys/windows have landed.
+    rt.send(json!({"type": "ready", "protocol": PROTOCOL, "subscribe": normalize(wanted.into_iter()), "done": true}));
     log("ready");
 
     for (short, def) in &plugin.actions {
@@ -500,7 +502,11 @@ fn dispatch(core: &Arc<Core>, msg: Value) {
             // Ack immediately on the reader thread, before any handler work.
             core.rt.send(json!({"type": "ack", "id": msg["id"]}));
             let key = msg["instance_id"].as_str().unwrap_or("").to_string();
-            run_ordered(&core.rt, key, Box::new(move || handle_invoke(&c, msg)));
+            run_ordered(&core.rt, key, Box::new(move || {
+                // Sent on drop, so a handler that panics still reports its end.
+                let _done = Done(c.rt.clone(), msg["id"].clone());
+                handle_invoke(&c, msg)
+            }));
         }
         "request" => match msg["method"].as_str().unwrap_or("") {
             "query" => spawn("query", move || handle_query(&c, &msg)),
@@ -519,6 +525,15 @@ fn dispatch(core: &Arc<Core>, msg: Value) {
             }
         }
         _ => {} // forward compatibility
+    }
+}
+
+/// Sends `done` for an invoke when dropped: its handler has returned.
+struct Done(Runtime, Value);
+
+impl Drop for Done {
+    fn drop(&mut self) {
+        self.0.send(json!({"type": "done", "id": self.1}));
     }
 }
 
