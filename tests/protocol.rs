@@ -22,6 +22,11 @@ struct Host {
 
 impl Host {
     fn start(data_dir: &std::path::Path) -> Host {
+        Self::start_with(data_dir, json!([]))
+    }
+
+    /// `features`: what this fake host advertises in `hello`.
+    fn start_with(data_dir: &std::path::Path, features: Value) -> Host {
         let mut child = Command::new(demo_exe())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -40,7 +45,7 @@ impl Host {
             }
         });
         let mut host = Host { child, stdin, lines };
-        host.send(json!({"type": "hello", "protocol": 2, "plugin_id": "example-rust", "data_dir": data_dir, "host_version": "test"}));
+        host.send(json!({"type": "hello", "protocol": 2, "plugin_id": "example-rust", "data_dir": data_dir, "host_version": "test", "features": features}));
         host
     }
 
@@ -137,6 +142,61 @@ fn hello_ready_sync_invoke_request_shutdown() {
     let status = wait_exit(&mut h.child);
     assert!(status.success());
     assert!(dir.join("shutdown.txt").exists(), "on_shutdown ran");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// Three device-volume sliders: two on device "a" (different steps), one on "b".
+fn sync_device_sliders(h: &mut Host) -> String {
+    let dv = knobdeck_sdk::make_full_id("example-rust", "device-volume");
+    h.send(json!({"type": "sync", "instances": [
+        {"instance_id": "a1", "action_id": dv, "inputs": {"device": "a", "step": "5"}},
+        {"instance_id": "a2", "action_id": dv, "inputs": {"device": "a", "step": "10"}},
+        {"instance_id": "b1", "action_id": dv, "inputs": {"device": "b", "step": "5"}},
+    ]}));
+    dv
+}
+
+#[test]
+fn targeted_fan_out_sends_one_match_frame_to_a_new_host() {
+    let dir = tempfile_dir("match-new");
+    let mut h = Host::start_with(&dir, json!(["state_match"]));
+    h.expect("ready");
+    let dv = sync_device_sliders(&mut h);
+    h.send(json!({"type": "invoke", "id": "r1", "instance_id": "a1", "action_id": dv, "trigger": "adjust",
+                  "inputs": {"device": "a", "step": "5", "value": 40}}));
+    let m = h.expect_where("state", |m| m["action_id"] == dv.as_str());
+    assert_eq!(m["match"], json!({"device": "a"}));
+    assert_eq!(m["state"], "40");
+    assert!(m.get("instance_id").is_none());
+    h.send(json!({"type": "shutdown"}));
+    wait_exit(&mut h.child);
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn targeted_fan_out_addresses_each_match_on_an_old_host() {
+    let dir = tempfile_dir("match-old");
+    let mut h = Host::start(&dir);
+    h.expect("ready");
+    let dv = sync_device_sliders(&mut h);
+    h.send(json!({"type": "invoke", "id": "r1", "instance_id": "a1", "action_id": dv, "trigger": "adjust",
+                  "inputs": {"device": "a", "step": "5", "value": 40}}));
+    // Until `done`, collect the frames carrying "40": exactly a1 and a2, never b1 or an action-wide one.
+    let mut got = Vec::new();
+    loop {
+        let m = h.next();
+        if m["type"] == "done" {
+            break;
+        }
+        if m["type"] == "state" && m["state"] == "40" {
+            assert!(m.get("action_id").is_none(), "no action-wide frame to an old host: {m}");
+            got.push(m["instance_id"].as_str().unwrap().to_string());
+        }
+    }
+    got.sort();
+    assert_eq!(got, ["a1", "a2"]);
+    h.send(json!({"type": "shutdown"}));
+    wait_exit(&mut h.child);
     std::fs::remove_dir_all(&dir).ok();
 }
 

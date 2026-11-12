@@ -25,6 +25,10 @@ use std::time::{Duration, Instant};
 
 /// Protocol version this SDK speaks.
 pub const PROTOCOL: u32 = 2;
+/// Host feature (listed in `hello.features`): a `state`/`error` frame sent to an
+/// `action_id` may carry `match`, and only instances whose inputs hold those
+/// values get it. Older hosts lack it; the SDK then sends per-instance frames.
+pub const FEATURE_STATE_MATCH: &str = "state_match";
 const MAX_WHEEL_BUTTONS: usize = 16;
 /// An idle per-instance worker thread exits after this long.
 const WORKER_IDLE: Duration = Duration::from_secs(30);
@@ -59,6 +63,11 @@ impl Visual {
         let mut m = Map::new();
         m.insert("type".into(), "state".into());
         m.insert(target.0.into(), target.1.into());
+        self.fill(&mut m);
+        Value::Object(m)
+    }
+
+    fn fill(&self, m: &mut Map<String, Value>) {
         if let Some(v) = &self.state {
             m.insert("state".into(), v.clone().into());
         }
@@ -68,8 +77,29 @@ impl Visual {
         if let Some(v) = &self.icon {
             m.insert("icon".into(), v.clone().into());
         }
-        Value::Object(m)
     }
+}
+
+/// Does an instance's `inputs` hold every value in `filter`? Values compare as
+/// strings (`5` matches `"5"`), and a missing input counts as `""`. The host
+/// applies the same rule to a `match` frame.
+pub fn inputs_match(inputs: &Value, filter: &Map<String, Value>) -> bool {
+    filter.iter().all(|(k, want)| {
+        let have = match &inputs[k] {
+            Value::Null => String::new(),
+            v => value_str(v),
+        };
+        let want = match want {
+            Value::Null => String::new(),
+            v => value_str(v),
+        };
+        have == want
+    })
+}
+
+/// A `match` filter made from `keys` of `inputs` (the targeted fan-out of `Ctx::fan_out_by`).
+pub(crate) fn filter_from(inputs: &Value, keys: &[&str]) -> Map<String, Value> {
+    keys.iter().map(|k| (k.to_string(), inputs[*k].clone())).collect()
 }
 
 type Job = Box<dyn FnOnce() + Send>;
@@ -86,6 +116,8 @@ pub(crate) struct Inner {
     next_id: AtomicU64,
     /// instance id → its ordered worker's queue.
     workers: Mutex<HashMap<String, Sender<Job>>>,
+    /// The host takes `match` on fan-out frames (`FEATURE_STATE_MATCH`).
+    state_match: bool,
 }
 
 /// Handle for pushing state/visuals/errors outside of a handler (timers, pollers,
@@ -125,8 +157,11 @@ impl Runtime {
                     st.insert(iid.into(), s.into());
                 } else if let Some(aid) = obj["action_id"].as_str() {
                     let short = self.0.full_to_short.get(aid).map(String::as_str).unwrap_or(aid);
+                    let filter = obj["match"].as_object();
+                    let inputs = self.0.inputs_of.lock().unwrap();
                     for (iid, a) in self.0.action_of.lock().unwrap().iter() {
-                        if a == short {
+                        let hit = filter.map_or(true, |f| inputs.get(iid).is_some_and(|i| inputs_match(i, f)));
+                        if a == short && hit {
                             st.insert(iid.clone(), s.into());
                         }
                     }
@@ -153,8 +188,40 @@ impl Runtime {
     pub fn notify_visual(&self, action_id: &str, patch: Visual) {
         self.send(patch.frame(("action_id", &self.full_id(action_id))));
     }
+    /// Targeted fan-out: set the state of every instance of an action (short id)
+    /// whose inputs hold the values in `filter`, e.g. `json!({"device": id})`.
+    /// For state that belongs to one target (a device, a user, a light) rather
+    /// than to the whole action. Values compare as strings; see [`inputs_match`].
+    pub fn notify_matching(&self, action_id: &str, filter: &Value, value: impl ToString) {
+        self.notify_visual_matching(action_id, filter, Visual::new().state(value));
+    }
+    /// Targeted fan-out of visuals; see [`Runtime::notify_matching`].
+    pub fn notify_visual_matching(&self, action_id: &str, filter: &Value, patch: Visual) {
+        let filter = filter.as_object().cloned().unwrap_or_default();
+        if self.0.state_match {
+            let mut m = Map::new();
+            m.insert("type".into(), "state".into());
+            m.insert("action_id".into(), self.full_id(action_id).into());
+            m.insert("match".into(), Value::Object(filter));
+            patch.fill(&mut m);
+            self.send(Value::Object(m));
+        } else {
+            // An older host would send an unknown `match` to every instance: address each one.
+            for iid in self.instances_matching(action_id, &filter) {
+                self.set_visual(&iid, patch.clone());
+            }
+        }
+    }
     pub fn set_error(&self, instance_id: &str, message: impl ToString) {
         self.send(json!({"type": "error", "instance_id": instance_id, "message": message.to_string()}));
+    }
+    /// Instance ids of the placed instances of `action_id` (short id) whose inputs hold `filter`.
+    pub fn instances_matching(&self, action_id: &str, filter: &Map<String, Value>) -> Vec<String> {
+        let inputs = self.0.inputs_of.lock().unwrap();
+        self.instances_of(action_id)
+            .into_iter()
+            .filter(|iid| inputs.get(iid).is_some_and(|i| inputs_match(i, filter)))
+            .collect()
     }
     /// Subscribe to host events (e.g. `"focus_changed"`).
     pub fn subscribe<S: AsRef<str>>(&self, events: &[S]) {
@@ -353,6 +420,9 @@ pub(crate) fn run(plugin: Plugin) -> ! {
         pending: Default::default(),
         next_id: AtomicU64::new(1),
         workers: Default::default(),
+        state_match: hello["features"]
+            .as_array()
+            .is_some_and(|f| f.iter().any(|x| x == FEATURE_STATE_MATCH)),
     }));
     let _ = RUNTIME.set(rt.clone());
 
@@ -755,4 +825,22 @@ fn handle_wheel(core: &Arc<Core>, msg: &Value) {
         json!({"mode": "buttons", "slices": slices})
     });
     reply(core, &msg["id"], outcome, &format!("on_open ({action_id})"));
+}
+
+#[cfg(test)]
+mod match_tests {
+    use super::*;
+
+    #[test]
+    fn inputs_match_compares_as_strings_and_treats_missing_as_empty() {
+        let f = |v: Value| v.as_object().unwrap().clone();
+        let inputs = json!({"device": "a", "index": 2, "step": "5"});
+        assert!(inputs_match(&inputs, &f(json!({"device": "a"}))));
+        assert!(inputs_match(&inputs, &f(json!({"index": "2"}))));
+        assert!(!inputs_match(&inputs, &f(json!({"device": "b"}))));
+        assert!(inputs_match(&inputs, &f(json!({"missing": null}))));
+        assert!(inputs_match(&inputs, &f(json!({"missing": ""}))));
+        assert!(!inputs_match(&inputs, &f(json!({"missing": "x"}))));
+        assert!(inputs_match(&inputs, &f(json!({}))));
+    }
 }

@@ -98,11 +98,18 @@ Blocking I/O is fine: invokes for the same key run in order on their own worker 
 ctx.input_str("url"); ctx.input_bool("new_tab"); ctx.input_f64("step");
 ctx.state; ctx.fg_process; ctx.trigger; ctx.child_id; ctx.value; ctx.delta;
 ctx.set_state("on"); ctx.fan_out("on");            // this key / every key of the action
+ctx.fan_out_by(&["device"], v);                     // every key of the action on the same device
 ctx.set_label("CPU 20%"); ctx.set_icon("cpu"); ctx.set_visual(Visual::new().label("x"));
 ctx.set_error("Acme isn't running");                // show an error, keep going
 ctx.mark_setup_required("Sign in again");           // host asks the user to run setup
 ctx.log("…");                                       // to the plugin's log.txt
 ```
+
+**Which instances get a state.** The same action can sit on the deck and the dial at once, so pick
+by what the state belongs to: the whole app or account (Discord mute) → `fan_out` / `rt.notify`;
+one target picked in the inputs (a device, a user, a light) → `fan_out_by(&["device"], v)` /
+`rt.notify_matching`, naming only the inputs that pick the target (not a step size); only the
+pressed key (a hold's own phase) → `set_state`.
 
 **stdout is the protocol.** Never print to it yourself; `println!` is redirected to the log, but
 don't rely on writing protocol lines by hand.

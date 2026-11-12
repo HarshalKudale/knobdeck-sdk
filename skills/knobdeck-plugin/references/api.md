@@ -47,6 +47,7 @@ Fields: `instance_id`, `action_id`, `trigger` (`press`, `adjust`, `hold_start`, 
 |---|---|
 | `input_str(k)` `input_bool(k)` `input_f64(k)` | read inputs (also on `InitialCtx`, `QueryCtx`, `OpenCtx`, `SetupCtx`) |
 | `set_state(v)` / `fan_out(v)` | this key / every key of this action |
+| `fan_out_by(&["device"], v)` / `fan_out_visual_by(keys, Visual)` | every key of this action whose `keys` inputs equal this key's |
 | `set_label(s)` `set_icon(s)` `set_visual(Visual)` `fan_out_visual(Visual)` | live visuals |
 | `set_error(msg)` | show an error, keep running |
 | `fail(msg)` | return this: report the error and stop the handler |
@@ -59,8 +60,10 @@ Fields: `instance_id`, `action_id`, `trigger` (`press`, `adjust`, `hold_start`, 
 ## Runtime (background threads)
 
 `rt.set_state(instance_id, v)`, `rt.notify(action_id, v)` (every key of an action),
-`rt.set_visual(instance_id, Visual)`, `rt.notify_visual(action_id, Visual)`, `rt.set_error(..)`,
-`rt.instances_of(action_id)`, `rt.inputs_of(instance_id)`, `rt.has_instances()`, `rt.subscribe(..)`,
+`rt.notify_matching(action_id, &json!({"device": id}), v)` (every key of an action whose inputs hold
+those values), `rt.set_visual(instance_id, Visual)`, `rt.notify_visual(action_id, Visual)`,
+`rt.notify_visual_matching(action_id, &filter, Visual)`, `rt.set_error(..)`,
+`rt.instances_of(action_id)`, `rt.instances_matching(action_id, &filter_map)`, `rt.inputs_of(instance_id)`, `rt.has_instances()`, `rt.subscribe(..)`,
 `rt.mark_setup_required(..)`, `rt.log(..)`, `rt.data_dir()`.
 
 ## Free functions

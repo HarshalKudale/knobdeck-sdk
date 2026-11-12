@@ -28,7 +28,7 @@ pub use error::{Error, Result};
 pub use host::{focus_app, installed_apps, send_keys};
 pub use log::log;
 pub use plugin::{Action, Kind, Plugin};
-pub use runtime::{Runtime, Visual, PROTOCOL};
+pub use runtime::{inputs_match, Runtime, Visual, FEATURE_STATE_MATCH, PROTOCOL};
 pub use serde_json::{json, Value};
 pub use setup::{run_setup, SetupCtx};
 

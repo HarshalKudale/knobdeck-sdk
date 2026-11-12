@@ -99,6 +99,18 @@ impl Ctx {
     pub fn fan_out_visual(&self, patch: Visual) {
         self.rt.notify_visual(&self.action_id, patch);
     }
+    /// Targeted fan-out: report state for every instance of this action whose
+    /// `keys` inputs equal this instance's, e.g. `ctx.fan_out_by(&["device"], v)`:
+    /// two sliders on the same device stay in step, one on another device doesn't.
+    /// Name only the inputs that pick the target, not ones like a step size.
+    pub fn fan_out_by(&self, keys: &[&str], value: impl ToString) {
+        self.fan_out_visual_by(keys, Visual::new().state(value));
+    }
+    /// Targeted fan-out of visuals; see [`Ctx::fan_out_by`].
+    pub fn fan_out_visual_by(&self, keys: &[&str], patch: Visual) {
+        let filter = Value::Object(crate::runtime::filter_from(&self.inputs, keys));
+        self.rt.notify_visual_matching(&self.action_id, &filter, patch);
+    }
     /// Report an error for this instance (the handler keeps running).
     pub fn set_error(&self, message: impl ToString) {
         self.rt.set_error(&self.instance_id, message);
