@@ -43,6 +43,16 @@ fn main() {
             }),
         )
         .action(
+            // Targeted fan-out: sliders on the same device follow each other; the
+            // step size is a per-instance setting, so it doesn't decide who syncs.
+            Action::slider("device-volume", "Device Volume", 0.0, 100.0)
+                .inputs(vec![input::text("device", "Device"), input::text("step", "Step")])
+                .on_adjust(|ctx| {
+                    ctx.fan_out_by(&["device"], ctx.value.unwrap_or(0.0));
+                    Ok(())
+                }),
+        )
+        .action(
             Action::button("pick", "Query demo").inputs(vec![
                 input::query_select("group", "Group", "groups", &[]),
                 input::query_select("item", "Item", "items", &["group"]),

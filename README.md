@@ -102,6 +102,7 @@ effect (keys sent, window moved) before returning.
 
 ```rust
 ctx.set_state("on");            // this instance        ctx.fan_out("on");  // every instance
+ctx.fan_out_by(&["device"], v); // every instance whose `device` input equals this one's
 ctx.set_label("CPU 20%");       // live visuals          ctx.set_visual(Visual::new().label("x").icon("y"));
 ctx.set_error("msg");           // report, keep going    return ctx.fail("msg");  // report + stop
 ctx.input_str("url"); ctx.input_bool("on"); ctx.input_f64("n");
@@ -155,7 +156,7 @@ Plugin::new(..).query("scenes", |ctx| Ok(json!([{"value": "1", "label": "Main"}]
 ## Background work
 
 `on_ready` fires once after the first sync with a cloneable, `Send` [`Runtime`]; move it into your
-own threads to push `set_state` / `notify` / `notify_visual` / `set_error`. `subscribe(&["focus_changed"])`
+own threads to push `set_state` / `notify` / `notify_matching` / `notify_visual` / `set_error`. `subscribe(&["focus_changed"])`
 + `on_event` receive host events. `on_shutdown` runs when the host stops the plugin (stdin closes
 or `shutdown` arrives); the host kills it 2 s later.
 
@@ -213,3 +214,7 @@ One JSON object per line. Host → plugin on stdin: `hello` (first), `sync`, `in
 `ready` (first), `ack`, `done`, `state`, `error`, `result` (answer to `request`), `host_call`,
 `subscribe`, `setup_required`. Unknown types are ignored. `ready` with `"done": true` promises a
 `done {id}` after each invoke's handler returns; the host then holds a workflow step until it. The manifest declares `"protocol": 2`.
+`hello.features` lists optional host features. With `"state_match"`, a `state` / `error` frame sent
+to an `action_id` may carry `"match": {input: value}`, and only instances whose inputs hold those
+values get it (compared as strings; a missing input is `""`). Without it, `fan_out_by` /
+`notify_matching` send one `instance_id` frame per matching instance instead.
