@@ -20,6 +20,8 @@ mod log;
 pub mod oauth;
 mod plugin;
 mod runtime;
+#[cfg(feature = "secrets")]
+pub mod secrets;
 mod setup;
 
 pub use codegen::{make_full_id, Stage};
@@ -76,6 +78,16 @@ pub fn data_file(name: &str) -> PathBuf {
 /// variables win. Missing file is fine.
 pub fn load_env() {
     let Ok(text) = std::fs::read_to_string(data_file(".env")) else { return };
+    for (k, v) in parse_env(&text) {
+        if std::env::var_os(&k).is_none() {
+            std::env::set_var(k, v);
+        }
+    }
+}
+
+/// `KEY=VALUE` lines (comments and blank lines skipped, one level of quotes removed).
+pub(crate) fn parse_env(text: &str) -> Vec<(String, String)> {
+    let mut out = Vec::new();
     for line in text.lines() {
         let line = line.trim();
         if line.is_empty() || line.starts_with('#') {
@@ -87,10 +99,9 @@ pub fn load_env() {
             .strip_prefix('"').and_then(|s| s.strip_suffix('"'))
             .or_else(|| v.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')))
             .unwrap_or(v);
-        if std::env::var_os(k.trim()).is_none() {
-            std::env::set_var(k.trim(), v);
-        }
+        out.push((k.trim().to_string(), v.to_string()));
     }
+    out
 }
 
 /// The OS this plugin runs on, as the host names it: `"windows"`, `"macos"` or `"linux"`
@@ -120,9 +131,10 @@ pub fn env_or(key: &str, default: &str) -> String {
     std::env::var(key).ok().filter(|v| !v.is_empty()).unwrap_or_else(|| default.into())
 }
 
-/// Write `.env` in the plugin's data folder (what [`load_env`] reads), replacing it.
-/// For setup programs: `save_env(&[("VLC_HOST", &host), ("VLC_PORT", &port)])?`.
+/// Write `.env` in the plugin's data folder (what [`load_env`] reads), replacing it, readable by
+/// the user only (Unix mode 0600). For setup programs: `save_env(&[("VLC_HOST", &host), ("VLC_PORT", &port)])?`.
 /// Values are written as they are; a line break in one is refused (it would split the line).
+/// Keep passwords and tokens in [`secrets`] (feature `secrets`) instead.
 pub fn save_env(pairs: &[(&str, &str)]) -> Result<()> {
     let mut text = String::new();
     for (k, v) in pairs {
@@ -131,8 +143,22 @@ pub fn save_env(pairs: &[(&str, &str)]) -> Result<()> {
         }
         text.push_str(&format!("{k}={v}\n"));
     }
-    std::fs::write(data_dir().join(".env"), text)?;
-    Ok(())
+    write_private(".env", &text)
+}
+
+/// Write `data_dir()/name` readable by the user only (Unix mode 0600; on Windows the per-user
+/// profile folder's ACL already covers it).
+fn write_private(name: &str, value: &str) -> Result<()> {
+    use std::io::Write;
+    let path = data_dir().join(name);
+    // Recreated, not truncated: an older file may carry wider permissions.
+    let _ = std::fs::remove_file(&path);
+    let mut opts = std::fs::OpenOptions::new();
+    opts.write(true).create_new(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut opts, 0o600);
+    let mut f = opts.open(&path).map_err(|e| Error::msg(format!("could not save {name}: {e}")))?;
+    f.write_all(value.as_bytes()).map_err(|e| Error::msg(format!("could not save {name}: {e}")))
 }
 
 /// Open a URL in the default browser (or any URI with its registered app).

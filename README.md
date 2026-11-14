@@ -162,11 +162,25 @@ or `shutdown` arrives); the host kills it 2 s later.
 
 ## Data and logs
 
-Keep tokens and settings in `knobdeck_sdk::data_dir()` (`%APPDATA%\KnobDeck\plugin-data\<id>` on
+Keep settings in `knobdeck_sdk::data_dir()` (`%APPDATA%\KnobDeck\plugin-data\<id>` on
 Windows, `~/Library/Application Support/KnobDeck/plugin-data/<id>` on macOS) (or `knobdeck_sdk::data_file("token.json")`,
 which also moves a file left in the plugin folder by an older version). The folder survives
 updates and reinstalls. `log()` and anything printed (even `println!`) go to the plugin's
 `log.txt` in that folder; stdout is reserved for the protocol.
+
+## Secrets (feature `secrets`)
+
+Passwords, API keys and tokens belong in the OS credential store (macOS Keychain, Windows Credential
+Manager, Linux Secret Service), not in files: `knobdeck_sdk::secrets::set("api-token", &token)?` in the
+setup program, `knobdeck_sdk::secrets::get("api-token")` in the plugin, `secrets::delete(name)` to
+remove one. Only the plugin binary uses the store: setup hands the value over in a file readable by
+the user only, and the plugin moves it into the store on its next read. On macOS the keychain item then
+trusts only the plugin binary; on Windows and Linux the store is per user, so it keeps secrets
+encrypted and out of plain files but does not hide them from other programs of the same user.
+Without a store (Linux with no Secret Service) the user-only file stays and the plugin logs why.
+`secrets::env_or_stored("API_TOKEN")` reads an env var of that name first (development), then the
+store. A plugin whose older setup wrote a secret to `.env` calls `secrets::migrate_env(&["API_TOKEN"])`
+right after `load_env()`: the value moves into the store and `.env` is rewritten without it.
 
 ## Setup program
 
@@ -177,7 +191,7 @@ fn main() {
     knobdeck_sdk::run_setup(|ctx| {
         let host = ctx.input_str("host");
         if host.is_empty() { return ctx.fail("Host cannot be empty"); }
-        std::fs::write(ctx.data_dir().join(".env"), format!("HOST={host}\n"))?;
+        knobdeck_sdk::save_env(&[("HOST", &host)])?; // settings; passwords go in `secrets`
         Ok(())
     })
 }
@@ -198,7 +212,8 @@ At runtime the plugin calls `knobdeck_sdk::load_env()` to read that `.env`. Decl
 - `access_token()`: the saved token, refreshed when it is about to expire. A refused refresh calls
   `mark_setup_required`, so the host asks the user to sign in again.
 
-Run the sign-in in the setup program; the token is kept as `oauth-token.json` in the data folder.
+Run the sign-in in the setup program; the token is kept in the OS credential store (see Secrets;
+`oauth` turns `secrets` on). A plain `oauth-token.json` from SDK 0.6 or older moves there on first read.
 
 ## Layout
 

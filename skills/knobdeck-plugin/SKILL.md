@@ -131,10 +131,12 @@ Prefer live queries (pick a playlist from a list) over asking users to paste ids
 
 ## Settings, tokens and sign-in
 
-- Data that must survive updates goes in `knobdeck_sdk::data_dir()` / `data_file("token.json")`.
+- Data that must survive updates goes in `knobdeck_sdk::data_dir()` / `data_file("settings.json")`.
+- Passwords, API keys and tokens go in the OS credential store with the `secrets` feature:
+  `secrets::set(name, value)` in setup, `secrets::get(name)` in the plugin. Never in `.env` or a file.
 - A one-time setup (host, API key) is a second binary calling `knobdeck_sdk::run_setup`, declared
   with `.setup("<bin>", None)` + `.setup_inputs(vec![..])`; the host draws the form. The plugin reads
-  it with `knobdeck_sdk::load_env()` and `env_or("KEY", "")`.
+  it with `knobdeck_sdk::load_env()` and `env_or("KEY", "")` (non-secret settings only).
 - Web sign-in: the `oauth` feature (`OAuth::authorize_pkce`, `device_flow`, `access_token`). Never
   ship a client secret in the binary.
 
