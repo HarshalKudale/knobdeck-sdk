@@ -71,8 +71,8 @@ steps file to exercise actions:
 ]
 ```
 
-Host calls (`send_keys`, `focus_app`, `installed_apps`) get harmless stub answers and are printed;
-a `send_keys` is flagged, since it means the action fell back to keystrokes. It fails when the
+`send_keys` (the only host call) gets a stub answer and is flagged, since it means the action fell
+back to keystrokes; any other host call is refused, as KnobDeck does. It fails when the
 plugin writes anything but protocol messages to stdout.
 
 ## Action types
@@ -85,7 +85,8 @@ plugin writes anything but protocol messages to stdout.
 | `Action::slider(id, label, min, max)` | `on_adjust` | `ctx.value` (absolute) or `ctx.delta`; `.step()`, `.unit()` |
 | `Action::wheel(id, label)` | `on_open` → `Vec<slice>`, `on_child_press` | max 16 buttons (extra are truncated) |
 
-`.volatile()` re-computes the initial state on every sync / focus change. `.icon()` and `.inputs()` apply to all.
+`.volatile()` re-computes the initial state on every sync and, with the `os-window` feature, whenever
+the target window changes (another window in front, or its title or window state); see [OS context](#os-context). `.icon()` and `.inputs()` apply to all.
 
 `.live(every, |ic| Ok(Visual::new().label(..).icon(..)))` gives any action Stream Deck-style live content: it runs every `every` for each placed instance (`ic.input_str(..)` reads its inputs) and pushes the label/icon when they change (a newly placed instance within a second). Set `.state(..)` too to keep a toggle or slider in step with something changed outside KnobDeck. The action and its press handler stay as they are, and while the plugin is not running the tile shows its configured icon and label.
 
@@ -106,8 +107,10 @@ ctx.fan_out_by(&["device"], v); // every instance whose `device` input equals th
 ctx.set_label("CPU 20%");       // live visuals          ctx.set_visual(Visual::new().label("x").icon("y"));
 ctx.set_error("msg");           // report, keep going    return ctx.fail("msg");  // report + stop
 ctx.input_str("url"); ctx.input_bool("on"); ctx.input_f64("n");
-ctx.state; ctx.fg_process; ctx.fg_title; ctx.trigger; ctx.child_id; ctx.value; ctx.delta;
-ctx.send_keys("ctrl+m")?; ctx.focus_app("code.exe")?; ctx.installed_apps()?;
+ctx.state; ctx.trigger; ctx.child_id; ctx.value; ctx.delta;
+ctx.send_keys("ctrl+m")?;       // host call, last resort
+ctx.focus_app("code.exe")?;     // feature os-window: in this process
+ctx.installed_apps();           // feature os-apps
 ctx.mark_setup_required("Discord token expired");   // host stops the plugin, asks for setup
 ctx.data_dir();                 // plugin-data/<id> — survives updates (see Data and logs)
 ```
@@ -124,10 +127,32 @@ ctx.send_keys("mod t")?;   // `mod` is ⌘ on macOS and Ctrl on Windows/Linux; `
 ```
 
 Without `platforms` a plugin or action is offered on every OS. Elsewhere the host hides it from
-pickers, and won't start a plugin whose `platforms` exclude its OS. `fg_process` is the exe name on
-Windows (`code.exe`), the bundle id on macOS (`com.microsoft.VSCode`) and the window class /
-Wayland app id on Linux (`code`, `org.gnome.Nautilus`). `focus_app` takes an exe
-name/path on Windows and a bundle id, `.app` path or app name on macOS.
+pickers, and won't start a plugin whose `platforms` exclude its OS.
+
+## OS context
+
+The protocol carries no OS context. A plugin reads what an action needs itself, in its own process,
+through `knobdeck_sdk::os` (the [`knobdeck-os`](knobdeck-os/) crate KnobDeck uses too). Each part
+is a Cargo feature: `knobdeck-sdk = { ..., features = ["os-window", "os-apps"] }`.
+
+```rust
+use knobdeck_sdk::os::window;
+let w = window::target().ok_or("no window")?;  // frontmost window that isn't KnobDeck's
+w.app_id; w.title; w.state.maximized; w.bounds; // app_id: code.exe / com.microsoft.VSCode / code
+window::list()?;                               // switcher wheels: front to back
+window::focus(&w.id)?;                         // bring one to the front
+window::focus_app("firefox", None)?;           // an app's frontmost window; Ok(false) if none open
+knobdeck_sdk::os::apps::installed();           // os-apps: [{label, value, executable, working_dir}]
+```
+
+`target()` skips KnobDeck's windows (the host's pid comes in `hello`), so a slider that keeps the
+dial focused still acts on the app under it. `.volatile()` actions re-run `initial()` from an
+event-driven watcher (`window::watch`) while one is placed; nothing polls. `app_id` is the exe name
+on Windows, the bundle id on macOS and the window class / Wayland app id on Linux. On Linux the
+window functions work on KDE Plasma, GNOME (with the KnobDeck Shell extension, which Linux Tools
+installs), Hyprland and X11. On macOS they need Accessibility (KnobDeck holds it; plugins inherit
+it), and with `os-window` the SDK runs the main run loop, so plugin code must not expect the main
+thread.
 
 `build` writes `runtime.executables` (and `setup.executables`) keyed by OS. Building on Windows
 and then on macOS into the same `dist/<id>/` keeps both entries and both binaries, so
@@ -156,8 +181,8 @@ Plugin::new(..).query("scenes", |ctx| Ok(json!([{"value": "1", "label": "Main"}]
 ## Background work
 
 `on_ready` fires once after the first sync with a cloneable, `Send` [`Runtime`]; move it into your
-own threads to push `set_state` / `notify` / `notify_matching` / `notify_visual` / `set_error`. `subscribe(&["focus_changed"])`
-+ `on_event` receive host events. `on_shutdown` runs when the host stops the plugin (stdin closes
+own threads to push `set_state` / `notify` / `notify_matching` / `notify_visual` / `set_error`. `subscribe(&[..])`
++ `on_event` receive host events (none are defined now; window changes come from `os::window::watch`). `on_shutdown` runs when the host stops the plugin (stdin closes
 or `shutdown` arrives); the host kills it 2 s later.
 
 ## Data and logs
@@ -224,7 +249,8 @@ Run the sign-in in the setup program; the token is kept in the OS credential sto
 
 ## Protocol v2
 
-One JSON object per line. Host → plugin on stdin: `hello` (first), `sync`, `invoke`, `request`
+One JSON object per line, about plugins only (no foreground, selection or other OS context).
+`hello` carries `host_pid`, KnobDeck's process id. The only `host_call` is `send_keys`. Host → plugin on stdin: `hello` (first), `sync`, `invoke`, `request`
 (`query` / `wheel`), `event`, `result` (answer to `host_call`), `shutdown`. Plugin → host on stdout:
 `ready` (first), `ack`, `done`, `state`, `error`, `result` (answer to `request`), `host_call`,
 `subscribe`, `setup_required`. Unknown types are ignored. `ready` with `"done": true` promises a

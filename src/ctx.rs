@@ -56,8 +56,6 @@ pub struct Ctx {
     pub trigger: String,
     /// Current state of this instance (as last reported).
     pub state: Option<String>,
-    pub fg_process: Option<String>,
-    pub fg_title: Option<String>,
     /// Set only for a `wheel` child invoke: the id the plugin gave the child in `on_open`.
     pub child_id: Option<String>,
     /// Slider absolute target (already clamped by the host), when driven by a drag.
@@ -130,14 +128,20 @@ impl Ctx {
     pub fn data_dir(&self) -> &std::path::Path {
         self.rt.data_dir()
     }
-    pub fn focus_app(&self, target: &str) -> Result<bool> {
-        crate::host::focus_app(target)
+    /// Bring `app`'s frontmost window to the front, in this process ([`crate::os::window::focus_app`]).
+    /// `Ok(false)` when it has no open window.
+    #[cfg(feature = "os-window")]
+    pub fn focus_app(&self, app: &str) -> Result<bool> {
+        Ok(crate::os::window::focus_app(app, None)?)
     }
+    /// Ask KnobDeck to press a key combination. Last resort: see the keystroke rule in the docs.
     pub fn send_keys(&self, keys: &str) -> Result {
         crate::host::send_keys(keys)
     }
-    pub fn installed_apps(&self) -> Result<Vec<Value>> {
-        crate::host::installed_apps()
+    /// The installed apps (scanned once per process; [`QueryCtx::installed_apps`] rescans).
+    #[cfg(feature = "os-apps")]
+    pub fn installed_apps(&self) -> Vec<crate::os::apps::InstalledApp> {
+        crate::os::apps::installed()
     }
 }
 
@@ -146,8 +150,6 @@ pub struct InitialCtx {
     pub instance_id: String,
     pub action_id: String,
     pub inputs: Value,
-    pub fg_process: Option<String>,
-    pub fg_title: Option<String>,
 }
 
 input_readers!(InitialCtx);
@@ -155,8 +157,6 @@ input_readers!(InitialCtx);
 /// Context for a config-time query provider (side-effect free).
 pub struct QueryCtx {
     pub inputs: Value,
-    pub fg_process: Option<String>,
-    pub fg_title: Option<String>,
 }
 
 input_readers!(QueryCtx);
@@ -171,16 +171,16 @@ impl QueryCtx {
         log(format!("query failed: {m}"));
         Err(Error::Fail(m))
     }
-    pub fn installed_apps(&self) -> Result<Vec<Value>> {
-        crate::host::installed_apps()
+    /// The installed apps, scanned again (a picker opening is when a new install should show).
+    #[cfg(feature = "os-apps")]
+    pub fn installed_apps(&self) -> Vec<crate::os::apps::InstalledApp> {
+        crate::os::apps::rescan()
     }
 }
 
 /// Context for a `wheel` action's `on_open` (builds the dynamic wheel contents).
 pub struct OpenCtx {
     pub inputs: Value,
-    pub fg_process: Option<String>,
-    pub fg_title: Option<String>,
 }
 
 input_readers!(OpenCtx);
@@ -194,15 +194,10 @@ impl OpenCtx {
         log(format!("wheel open failed: {m}"));
         Err(Error::Fail(m))
     }
-    pub fn installed_apps(&self) -> Result<Vec<Value>> {
-        crate::host::installed_apps()
-    }
 }
 
 /// A subscribed host event delivered to `Plugin::on_event`.
 pub struct Event {
     pub name: String,
     pub payload: Value,
-    pub fg_process: Option<String>,
-    pub fg_title: Option<String>,
 }

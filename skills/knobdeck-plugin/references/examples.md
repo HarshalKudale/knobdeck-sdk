@@ -170,7 +170,7 @@ fn main() {
                 .state("off", "Off", "lightbulb-off")
                 .state("on", "On", "lightbulb")
                 .inputs(vec![input::query_select("entity", "Entity", "entities", &[])])
-                // Show the real state when the key appears and after focus changes.
+                // Show the real state when the key appears (and on every sync).
                 .volatile()
                 .initial_with(|ic| {
                     let entity = ic.input_str("entity");

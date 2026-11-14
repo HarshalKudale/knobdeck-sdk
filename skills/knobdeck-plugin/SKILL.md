@@ -84,7 +84,7 @@ Action ids (`"play-pause"`) are saved in users' layouts: never rename one after 
 | `Action::wheel(id, label)` | `on_open` → `Vec<Value>` slices, `on_child_press` | max 16 slices; `ctx.child_id` says which |
 
 On any action: `.icon(..)`, `.inputs(vec![..])`, `.platforms(&["macos"])`, `.volatile()` (re-run
-the initial state on every sync / focus change), `.initial(..)` / `.initial_with(|ic| ..)`, and
+the initial state on every sync, and with the `os-window` feature whenever the target window changes), `.initial(..)` / `.initial_with(|ic| ..)`, and
 `.live(every, |ic| Ok(Visual::new().label(..).icon(..).state(..)))` for content that updates
 (now playing, a counter, a gauge). `references/api.md` has the full API.
 
@@ -96,7 +96,7 @@ Blocking I/O is fine: invokes for the same key run in order on their own worker 
 
 ```rust
 ctx.input_str("url"); ctx.input_bool("new_tab"); ctx.input_f64("step");
-ctx.state; ctx.fg_process; ctx.trigger; ctx.child_id; ctx.value; ctx.delta;
+ctx.state; ctx.trigger; ctx.child_id; ctx.value; ctx.delta;
 ctx.set_state("on"); ctx.fan_out("on");            // this key / every key of the action
 ctx.fan_out_by(&["device"], v);                     // every key of the action on the same device
 ctx.set_label("CPU 20%"); ctx.set_icon("cpu"); ctx.set_visual(Visual::new().label("x"));
@@ -143,7 +143,7 @@ Prefer live queries (pick a playlist from a list) over asking users to paste ids
 ## Background work and events
 
 `.on_ready(|rt| { let rt = rt.clone(); std::thread::spawn(move || loop { … rt.notify("action-id", "on"); }); Ok(()) })`
-for pushing state from your own thread (a websocket listener, a poller). `.subscribe(&["focus_changed"])`
+for pushing state from your own thread (a websocket listener, a poller). `.subscribe(&[..])`
 + `.on_event(..)` for host events. `.on_shutdown(..)` to clean up; the host kills the process 2 s
 after asking it to stop.
 
@@ -152,8 +152,16 @@ after asking it to stop.
 Without `.platforms(..)` a plugin or action is offered everywhere. Put OS differences behind one
 `#[cfg(target_os = "…")]` module per concern so the action set stays the same on every OS. Build
 on each OS into the same `dist/<id>/` and `package` produces one `.knobdeck` holding every OS's
-binary. `fg_process` is the exe name on Windows, the bundle id on macOS and the window class /
-app id on Linux.
+binary.
+
+## OS context (the window, installed apps)
+
+The host sends no OS context. Read it in the plugin, only when an action needs it, through
+`knobdeck_sdk::os` with the SDK features `os-window` / `os-apps`:
+`os::window::target()` (the frontmost window that isn't KnobDeck's: `app_id`, `title`, `state`,
+`bounds`), `os::window::list()`, `os::window::focus(&w.id)`, `os::window::focus_app(app, hint)`,
+`os::apps::installed()`. `app_id` is the exe name on Windows, the bundle id on macOS and the
+window class / app id on Linux. Don't send keystrokes to bring an app forward: use `focus_app`.
 
 ## Testing
 
@@ -174,8 +182,8 @@ each action → wait → shutdown. With a steps file it runs your steps after th
 ```
 
 `knobdeck-plugin drive steps.json`. Every message the plugin sends is printed (`state`, `error`,
-`result`, `host_call`); host calls (`send_keys`, `focus_app`, `installed_apps`) are answered with
-a harmless stub and printed, so you can see when a plugin falls back to keystrokes. A non-JSON line
+`result`, `host_call`); `send_keys`, the only host call, is answered with a harmless stub and
+printed, so you can see when a plugin falls back to keystrokes. A non-JSON line
 on stdout fails the run. Check that each action produced the state or label you expect, and that
 errors are clear sentences a user can act on ("Acme isn't running", not "connection refused (os
 error 61)").

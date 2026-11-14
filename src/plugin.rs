@@ -178,7 +178,10 @@ impl Action {
         self.unit = Some(unit.into());
         self
     }
-    /// Re-query `initial` on every sync / focus change (per-window state).
+    /// Per-window state: re-run `initial` on every sync and, with the `os-window` feature, whenever
+    /// the target window changes (another window comes to the front, or its title or
+    /// maximize / minimize / full screen / topmost state changes). The watcher runs only while
+    /// an instance of a volatile action is placed. Read the window with `os::window::target()`.
     pub fn volatile(mut self) -> Self {
         self.volatile = true;
         self
@@ -379,7 +382,8 @@ impl Plugin {
         self
     }
 
-    /// Subscribe to host events (currently `"focus_changed"`).
+    /// Subscribe to host events by name (none are defined at the moment; the window watcher of
+    /// [`Action::volatile`] replaced `focus_changed`).
     pub fn subscribe(mut self, events: &[&str]) -> Self {
         self.subscriptions.extend(events.iter().map(|s| s.to_string()));
         self
