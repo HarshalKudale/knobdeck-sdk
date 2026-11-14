@@ -10,10 +10,12 @@
 //! let token = spotify.access_token()?;
 //! ```
 //!
-//! Tokens are saved as `oauth-token.json` in the plugin's data folder (it survives updates).
+//! Tokens live in the OS credential store through [`crate::secrets`] (item `oauth-token.json`): the
+//! setup program hands the fresh sign-in to the plugin in a user-only file of that name, and the
+//! plugin moves it into the store, as it does with a token file left by older builds.
 //! When a refresh is refused, the host is asked to run setup again.
 
-use crate::{data_file, log, open_url, Error, Result};
+use crate::{log, open_url, secrets, Error, Result};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use serde_json::{json, Value};
@@ -187,13 +189,13 @@ impl OAuth {
                 t["refresh_token"] = json!(old);
             }
         }
-        std::fs::write(data_file(TOKEN_FILE), serde_json::to_vec_pretty(&t).unwrap_or_default())?;
+        secrets::set(TOKEN_FILE, &t.to_string())?;
         Ok(t)
     }
 
     /// The saved token reply, if setup has run.
     pub fn load(&self) -> Option<Value> {
-        serde_json::from_slice(&std::fs::read(data_file(TOKEN_FILE)).ok()?).ok()
+        secrets::get(TOKEN_FILE)?.parse().ok()
     }
 
     /// Whether a token has been saved (setup done).

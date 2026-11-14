@@ -76,8 +76,16 @@ those values), `rt.set_visual(instance_id, Visual)`, `rt.notify_visual(action_id
 
 `knobdeck_sdk::oauth::OAuth::new(token_url, client_id)`: `.authorize_pkce(auth_url, scopes, port, extra)`
 (browser + `http://127.0.0.1:{port}/callback`), `.device_flow(device_url, form)`, `.access_token()`
-(refreshed automatically; a refused refresh marks setup required). Token kept as
-`oauth-token.json` in the data folder.
+(refreshed automatically; a refused refresh marks setup required). Token kept in the OS credential
+store under `oauth-token.json` (via `secrets`).
+
+## Secrets (feature `secrets`, on with `oauth`)
+
+`knobdeck_sdk::secrets::{get(name) -> Option<String>, set(name, value) -> Result, delete(name)}`.
+The plugin binary keeps them in the OS credential store (item "KnobDeck plugin <id>" / name); a setup
+program writes a user-only hand-off file `name` in the data folder that the plugin moves into the store.
+`env_or_stored(key)`: env var `key`, else the stored secret. `migrate_env(&[keys])` (plugin start-up,
+after `load_env()`): moves those keys out of an old `.env` into the store.
 
 ## Files
 

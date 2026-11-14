@@ -1,7 +1,8 @@
 //! Standalone setup program support. KnobDeck runs the setup binary once when the
 //! user clicks Setup, with the collected fields in `KNOBDECK_SETUP_INPUTS` (JSON).
 //! Returning `Ok` → exit 0 → the host marks setup complete; `Err` → exit 1.
-//! Save credentials under [`crate::data_dir`] (`KNOBDECK_PLUGIN_DATA`).
+//! Save settings under [`crate::data_dir`] (`KNOBDECK_PLUGIN_DATA`) and passwords or tokens with
+//! `secrets::set` (feature `secrets`), which hands them to the plugin for the OS credential store.
 
 use crate::ctx::input_readers;
 use crate::error::{Error, Result};
@@ -36,6 +37,8 @@ pub fn run_setup(run: impl FnOnce(&SetupCtx) -> Result) -> ! {
     if std::env::var("KNOBDECK_CODEGEN").as_deref() == Ok("1") {
         std::process::exit(0);
     }
+    #[cfg(feature = "secrets")]
+    crate::secrets::mark_setup_process();
     let inputs = match std::env::var("KNOBDECK_SETUP_INPUTS") {
         Ok(raw) => serde_json::from_str(&raw).unwrap_or_else(|e| {
             eprintln!("setup: warning: could not parse KNOBDECK_SETUP_INPUTS: {e}");

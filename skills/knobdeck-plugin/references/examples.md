@@ -78,7 +78,7 @@ long-lived token; a query lists entities so users pick from a list instead of ty
 
 ```toml
 [dependencies]
-knobdeck-sdk = { git = "https://github.com/HarshalKudale/knobdeck-sdk.git" }
+knobdeck-sdk = { git = "https://github.com/HarshalKudale/knobdeck-sdk.git", features = ["secrets"] }
 ureq = { version = "2", features = ["json"] }
 
 [[bin]]
@@ -105,7 +105,9 @@ fn main() {
             .set("Authorization", &format!("Bearer {token}"))
             .call()
             .map_err(|e| knobdeck_sdk::Error::msg(format!("Home Assistant didn't accept the token ({e})")))?;
-        knobdeck_sdk::save_env(&[("HA_URL", &url), ("HA_TOKEN", &token)])
+        // The URL is a setting; the token goes to the OS credential store.
+        knobdeck_sdk::secrets::set("HA_TOKEN", &token)?;
+        knobdeck_sdk::save_env(&[("HA_URL", &url)])
     })
 }
 ```
@@ -117,7 +119,7 @@ use knobdeck_sdk::input;
 use knobdeck_sdk::{env_or, json, Action, Error, Plugin, Result, Value};
 
 fn ha(method: &str, path: &str, body: Option<Value>) -> Result<Value> {
-    let (url, token) = (env_or("HA_URL", ""), env_or("HA_TOKEN", ""));
+    let (url, token) = (env_or("HA_URL", ""), knobdeck_sdk::secrets::env_or_stored("HA_TOKEN"));
     if url.is_empty() {
         knobdeck_sdk::mark_setup_required("Connect KnobDeck to Home Assistant");
         return Err(Error::msg("Home Assistant isn't set up"));
