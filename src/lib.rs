@@ -16,6 +16,8 @@ mod error;
 mod host;
 pub mod input;
 mod log;
+#[cfg(any(feature = "os-window", feature = "os-apps"))]
+pub mod os;
 #[cfg(feature = "oauth")]
 pub mod oauth;
 mod plugin;
@@ -27,10 +29,10 @@ mod setup;
 pub use codegen::{make_full_id, Stage};
 pub use ctx::{Ctx, Event, InitialCtx, OpenCtx, QueryCtx};
 pub use error::{Error, Result};
-pub use host::{focus_app, installed_apps, send_keys};
+pub use host::send_keys;
 pub use log::log;
 pub use plugin::{Action, Kind, Plugin};
-pub use runtime::{inputs_match, Runtime, Visual, FEATURE_STATE_MATCH, PROTOCOL};
+pub use runtime::{host_process_id, inputs_match, Runtime, Visual, FEATURE_STATE_MATCH, PROTOCOL};
 pub use serde_json::{json, Value};
 pub use setup::{run_setup, SetupCtx};
 

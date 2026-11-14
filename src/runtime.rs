@@ -4,6 +4,9 @@
 //! `host_call`, `subscribe`, `setup_required`). Logs go to stderr, which the
 //! host writes to the plugin's log file.
 //!
+//! The protocol carries no OS context (foreground window, selection): plugins
+//! read it themselves through [`crate::os`] when an action needs it.
+//!
 //! Handlers for the same instance run in order on that instance's worker
 //! thread (a slider never applies 30 after 50); different instances, queries
 //! and events run in parallel, so a slow handler never blocks the reader.
@@ -223,7 +226,7 @@ impl Runtime {
             .filter(|iid| inputs.get(iid).is_some_and(|i| inputs_match(i, filter)))
             .collect()
     }
-    /// Subscribe to host events (e.g. `"focus_changed"`).
+    /// Subscribe to host events by name.
     pub fn subscribe<S: AsRef<str>>(&self, events: &[S]) {
         let names = normalize(events.iter().map(|s| s.as_ref().to_string()));
         if !names.is_empty() {
@@ -313,6 +316,9 @@ pub(crate) fn value_str(v: &Value) -> String {
 struct Core {
     plugin: Plugin,
     rt: Runtime,
+    /// Runs while a volatile instance is placed: re-runs their `initial()` on window changes.
+    #[cfg(feature = "os-window")]
+    volatile_watch: Mutex<Option<knobdeck_os::window::WatchHandle>>,
 }
 
 impl Core {
@@ -378,6 +384,18 @@ fn take_protocol_stdout() -> Box<dyn Write + Send> {
 }
 
 pub(crate) fn run(plugin: Plugin) -> ! {
+    // macOS: window events (workspace notifications, the AX observer) arrive on the main run
+    // loop, so the protocol moves to a thread and the main thread runs that loop.
+    #[cfg(all(target_os = "macos", feature = "os-window"))]
+    {
+        std::thread::spawn(move || serve(plugin));
+        knobdeck_os::macos::run_main_loop()
+    }
+    #[cfg(not(all(target_os = "macos", feature = "os-window")))]
+    serve(plugin)
+}
+
+fn serve(plugin: Plugin) -> ! {
     let out = take_protocol_stdout();
     // Panics inside handler threads are caught per-thread; log them.
     std::panic::set_hook(Box::new(|info| log(format!("panic: {info}"))));
@@ -425,11 +443,14 @@ pub(crate) fn run(plugin: Plugin) -> ! {
             .is_some_and(|f| f.iter().any(|x| x == FEATURE_STATE_MATCH)),
     }));
     let _ = RUNTIME.set(rt.clone());
-
-    let mut wanted = plugin.subscriptions.clone();
-    if plugin.actions.values().any(|a| a.volatile) {
-        wanted.push("focus_changed".into());
+    let host = host_pid(&hello);
+    HOST_PID.store(host.unwrap_or(0), Ordering::Relaxed);
+    #[cfg(feature = "os-window")]
+    if let Some(pid) = host {
+        knobdeck_os::window::exclude_pid(pid);
     }
+
+    let wanted = plugin.subscriptions.clone();
     // `done`: this runtime reports each invoke's end, so the host's workflows
     // run the next step only after this one's keys/windows have landed.
     rt.send(json!({"type": "ready", "protocol": PROTOCOL, "subscribe": normalize(wanted.into_iter()), "done": true}));
@@ -440,7 +461,12 @@ pub(crate) fn run(plugin: Plugin) -> ! {
             start_live(rt.clone(), short.clone(), *every, f.clone());
         }
     }
-    let core = Arc::new(Core { plugin, rt });
+    let core = Arc::new(Core {
+        plugin,
+        rt,
+        #[cfg(feature = "os-window")]
+        volatile_watch: Mutex::new(None),
+    });
     for line in lines {
         let Ok(line) = line else { break };
         match serde_json::from_str::<Value>(&line) {
@@ -450,6 +476,25 @@ pub(crate) fn run(plugin: Plugin) -> ! {
         }
     }
     finish(&core)
+}
+
+static HOST_PID: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// KnobDeck's pid: `hello.host_pid`, else (an older host) the parent process, which is the host
+/// that started this plugin.
+fn host_pid(hello: &Value) -> Option<u32> {
+    if let Some(pid) = hello["host_pid"].as_u64().filter(|p| *p > 0) {
+        return Some(pid as u32);
+    }
+    #[cfg(unix)]
+    return Some(std::os::unix::process::parent_id()).filter(|p| *p > 1);
+    #[cfg(not(unix))]
+    None
+}
+
+/// The KnobDeck process that runs this plugin (`None` outside KnobDeck, or from an older Windows host).
+pub fn host_process_id() -> Option<u32> {
+    Some(HOST_PID.load(Ordering::Relaxed)).filter(|p| *p != 0)
 }
 
 fn finish(core: &Core) -> ! {
@@ -537,8 +582,6 @@ fn start_live(rt: Runtime, action: String, every: Duration, f: LiveFn) {
                     instance_id: iid.clone(),
                     action_id: action.clone(),
                     inputs: rt.inputs_of(&iid),
-                    fg_process: None,
-                    fg_title: None,
                 };
                 match catch_unwind(AssertUnwindSafe(|| f(&ic))) {
                     Ok(Ok(v)) => {
@@ -607,10 +650,6 @@ impl Drop for Done {
     }
 }
 
-fn opt_str(v: &Value) -> Option<String> {
-    v.as_str().map(String::from)
-}
-
 fn obj_or_empty(v: &Value) -> Value {
     if v.is_object() {
         v.clone()
@@ -621,8 +660,6 @@ fn obj_or_empty(v: &Value) -> Value {
 
 fn handle_sync(core: &Arc<Core>, msg: &Value) {
     let rt = &core.rt;
-    let fg_process = opt_str(&msg["fg_process"]);
-    let fg_title = opt_str(&msg["fg_title"]);
     let instances = msg["instances"].as_array().cloned().unwrap_or_default();
     log(format!("sync: {} instance(s)", instances.len()));
 
@@ -639,7 +676,7 @@ fn handle_sync(core: &Arc<Core>, msg: &Value) {
         rt.0.action_of.lock().unwrap().insert(iid.into(), action_id.clone());
         rt.0.inputs_of.lock().unwrap().insert(iid.into(), inputs.clone());
         let def = core.action(&action_id);
-        // Volatile actions re-query initial() on every sync (per-window state).
+        // Volatile actions re-query initial() on every sync too (per-window state).
         let volatile = def.map_or(false, |d| d.volatile);
         let known = rt.0.state.lock().unwrap().contains_key(iid);
         if !known || volatile {
@@ -647,8 +684,6 @@ fn handle_sync(core: &Arc<Core>, msg: &Value) {
                 instance_id: iid.into(),
                 action_id,
                 inputs,
-                fg_process: fg_process.clone(),
-                fg_title: fg_title.clone(),
             };
             let s = compute_initial(def, &ic);
             rt.0.state.lock().unwrap().insert(iid.into(), s);
@@ -656,6 +691,9 @@ fn handle_sync(core: &Arc<Core>, msg: &Value) {
         let s = rt.0.state.lock().unwrap().get(iid).cloned().unwrap_or_default();
         rt.send(json!({"type": "state", "instance_id": iid, "state": s}));
     }
+
+    #[cfg(feature = "os-window")]
+    update_volatile_watch(core);
 
     // on_ready fires once after the first sync: all instances are known.
     if let Some(f) = &core.plugin.on_ready {
@@ -670,36 +708,56 @@ fn handle_sync(core: &Arc<Core>, msg: &Value) {
     }
 }
 
+/// Re-run `initial()` for every placed volatile instance and send the states that changed.
+#[cfg(feature = "os-window")]
+fn refresh_volatile(core: &Core) {
+    let snapshot = core.rt.0.action_of.lock().unwrap().clone();
+    for (iid, aid) in snapshot {
+        let Some(def) = core.action(&aid).filter(|d| d.volatile) else { continue };
+        let inputs = core.rt.0.inputs_of.lock().unwrap().get(&iid).cloned().unwrap_or(json!({}));
+        let ic = InitialCtx { instance_id: iid.clone(), action_id: aid.clone(), inputs };
+        let next = compute_initial(Some(def), &ic);
+        {
+            let mut state = core.rt.0.state.lock().unwrap();
+            if state.get(&iid) == Some(&next) {
+                continue;
+            }
+            state.insert(iid.clone(), next.clone());
+        }
+        core.rt.send(json!({"type": "state", "instance_id": iid, "state": next}));
+    }
+}
+
+/// Watch the target window while at least one volatile instance is placed, and only then.
+#[cfg(feature = "os-window")]
+fn update_volatile_watch(core: &Arc<Core>) {
+    let placed = core.rt.0.action_of.lock().unwrap().values().any(|aid| core.action(aid).is_some_and(|d| d.volatile));
+    let mut slot = core.volatile_watch.lock().unwrap();
+    if !placed {
+        *slot = None;
+        return;
+    }
+    if slot.is_some() {
+        return;
+    }
+    let weak = Arc::downgrade(core);
+    match knobdeck_os::window::watch(move |_| {
+        if let Some(core) = weak.upgrade() {
+            refresh_volatile(&core);
+        }
+    }) {
+        Ok(h) => *slot = Some(h),
+        Err(e) => log(format!("window watcher unavailable: {e}")),
+    }
+}
+
 fn handle_event(core: &Arc<Core>, msg: Value) {
     let name = msg["event"].as_str().unwrap_or("").to_string();
     let payload = obj_or_empty(&msg["payload"]);
-    let fg_process = opt_str(&payload["fg_process"]);
-    let fg_title = opt_str(&payload["fg_title"]);
-
-    if name == "focus_changed" {
-        let snapshot = core.rt.0.action_of.lock().unwrap().clone();
-        for (iid, aid) in snapshot {
-            let Some(def) = core.action(&aid).filter(|d| d.volatile) else { continue };
-            let inputs = core.rt.0.inputs_of.lock().unwrap().get(&iid).cloned().unwrap_or(json!({}));
-            let ic = InitialCtx {
-                instance_id: iid.clone(),
-                action_id: aid.clone(),
-                inputs,
-                fg_process: fg_process.clone(),
-                fg_title: fg_title.clone(),
-            };
-            let next = compute_initial(Some(def), &ic);
-            if core.rt.0.state.lock().unwrap().get(&iid) == Some(&next) {
-                continue;
-            }
-            core.rt.send(json!({"type": "state", "instance_id": iid, "state": next}));
-        }
-    }
-
     if let Some(f) = core.plugin.on_event.clone() {
         let rt = core.rt.clone();
         spawn("on_event", move || {
-            let evt = Event { name: name.clone(), payload, fg_process, fg_title };
+            let evt = Event { name: name.clone(), payload };
             if let Err(e) = f(&evt, &rt) {
                 log(format!("on_event error ({name}): {e}"));
             }
@@ -739,8 +797,6 @@ fn handle_invoke(core: &Arc<Core>, msg: Value) {
         full_action_id: full,
         trigger: trigger.clone(),
         state: rt.0.state.lock().unwrap().get(&instance_id).cloned(),
-        fg_process: opt_str(&msg["fg_process"]),
-        fg_title: opt_str(&msg["fg_title"]),
         child_id: child_id.clone(),
         value: if is_adjust { inputs.get("value").and_then(num) } else { None },
         delta: if is_adjust { inputs.get("delta").and_then(num) } else { None },
@@ -792,8 +848,6 @@ fn handle_query(core: &Arc<Core>, msg: &Value) {
         None => Err(Error::msg(format!("unknown query \"{qid}\""))),
         Some(provider) => provider(&QueryCtx {
             inputs: obj_or_empty(&p["inputs"]),
-            fg_process: opt_str(&p["fg_process"]),
-            fg_title: opt_str(&p["fg_title"]),
         }),
     };
     reply(core, &msg["id"], outcome, &format!("query ({qid})"));
@@ -811,8 +865,6 @@ fn handle_wheel(core: &Arc<Core>, msg: &Value) {
     }
     let outcome = handler(&OpenCtx {
         inputs: obj_or_empty(&p["inputs"]),
-        fg_process: opt_str(&p["fg_process"]),
-        fg_title: opt_str(&p["fg_title"]),
     })
     .map(|mut slices| {
         if slices.len() > MAX_WHEEL_BUTTONS {

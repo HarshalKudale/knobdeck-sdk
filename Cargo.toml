@@ -1,12 +1,17 @@
 [package]
 name = "knobdeck-sdk"
-version = "0.7.0"
+version = "0.8.0"
 edition = "2021"
 description = "Declarative Rust SDK for authoring KnobDeck plugins"
 license = "MIT"
 repository = "https://github.com/HarshalKudale/knobdeck-sdk"
 
+[workspace]
+members = [".", "knobdeck-os"]
+
 [dependencies]
+# `os-*` features: OS context read in the plugin's own process (see src/os.rs).
+knobdeck-os = { path = "knobdeck-os", version = "0.1", default-features = false, optional = true }
 serde_json = { version = "1", features = ["preserve_order"] }
 sha1 = "0.10"
 # `oauth` feature: browser / device-code sign-in and token refresh for web-service plugins.
@@ -27,6 +32,11 @@ keyring = { version = "3", features = ["async-secret-service", "async-io", "cryp
 [features]
 oauth = ["secrets", "dep:ureq", "dep:sha2", "dep:base64", "dep:getrandom"]
 secrets = ["dep:keyring"]
+# OS context read in the plugin's own process (`knobdeck_sdk::os`), from the knobdeck-os crate.
+# `os-window`: target / foreground window, window list, focus, and the watcher behind `.volatile()`.
+os-window = ["dep:knobdeck-os", "knobdeck-os/window"]
+# `os-apps`: the installed apps (`os::apps`, `ctx.installed_apps()`).
+os-apps = ["dep:knobdeck-os", "knobdeck-os/apps"]
 
 [[bin]]
 name = "knobdeck-plugin"

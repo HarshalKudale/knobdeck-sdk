@@ -11,10 +11,10 @@
 | `.version(v)` `.author(v)` `.description(v)` `.icon(v)` | metadata (`icon`: Lucide name or `icons/<file>`) |
 | `.platforms(&["windows", "macos", "linux"])` | OSes it runs on (default: all) |
 | `.action(Action)` | add an action (duplicate ids panic) |
-| `.query(id, \|q: &QueryCtx\| Ok(json!([{"value": .., "label": ..}])))` | options for `query_select` inputs; `q.inputs`, `q.fg_process` |
+| `.query(id, \|q: &QueryCtx\| Ok(json!([{"value": .., "label": ..}])))` | options for `query_select` inputs; `q.inputs`, `q.installed_apps()` (os-apps, rescans) |
 | `.setup(bin, page)` `.setup_inputs(vec![..])` `.setup_assets_dir(dir)` | a setup program (second `[[bin]]` calling `run_setup`) |
 | `.on_ready(\|rt: &Runtime\| ..)` | once after the first sync; clone `rt` into your threads |
-| `.subscribe(&["focus_changed"])` `.on_event(\|e: &Event, rt\| ..)` | host events |
+| `.subscribe(&[..])` `.on_event(\|e: &Event, rt\| ..)` | host events (none defined now) |
 | `.on_shutdown(\|rt\| ..)` | the host kills the process 2 s later |
 | `.ack_timeout_ms(n)` `.query_timeout_ms(n)` | raise host timeouts for slow handlers |
 | `.run()` | start (never returns) |
@@ -29,7 +29,8 @@
 | `Action::slider(id, label, min, max)` | `.on_adjust` (`ctx.value` absolute or `ctx.delta`); `.step(n)`, `.unit("%")` |
 | `Action::wheel(id, label)` | `.on_open(\|o: &OpenCtx\| Ok(vec![json!({"id": "1", "label": "One", "icon": "star"})]))` (max 16), `.on_child_press(\|ctx\| ..)` with `ctx.child_id` |
 
-Common: `.icon(name)`, `.inputs(vec![..])`, `.platforms(..)`, `.volatile()`, `.initial(state)`,
+Common: `.icon(name)`, `.inputs(vec![..])`, `.platforms(..)`, `.volatile()` (re-run `initial` on sync and, with
+`os-window`, on target-window changes), `.initial(state)`,
 `.initial_with(|ic: &InitialCtx| Some(state))`, `.live(Duration, |ic| Ok(Visual))`.
 
 ## Inputs
@@ -41,7 +42,7 @@ Chain `.placeholder("…")`, `.default_value(v)`, `.with("showIf", json!({"key":
 ## Ctx (handlers)
 
 Fields: `instance_id`, `action_id`, `trigger` (`press`, `adjust`, `hold_start`, `hold_end`),
-`state: Option<String>`, `fg_process`, `fg_title`, `child_id`, `value`, `delta`, `inputs`.
+`state: Option<String>`, `child_id`, `value`, `delta`, `inputs`.
 
 | Method | |
 |---|---|
@@ -53,7 +54,16 @@ Fields: `instance_id`, `action_id`, `trigger` (`press`, `adjust`, `hold_start`, 
 | `fail(msg)` | return this: report the error and stop the handler |
 | `mark_setup_required(reason)` | the host stops the plugin and asks for setup |
 | `log(msg)` `data_dir()` `runtime()` | |
-| `focus_app(target)` `send_keys(keys)` `installed_apps()` | host calls (`send_keys`: last resort) |
+| `send_keys(keys)` | the only host call; last resort |
+| `focus_app(app)` | os-window: the app's frontmost window to the front (in this process) |
+| `installed_apps()` | os-apps: cached `Vec<InstalledApp>` (`label`, `value`, `executable`, `working_dir`) |
+
+## os (features `os-window`, `os-apps`)
+
+`os::window::{target, foreground, list, focus, focus_app, watch, wait_for}`; `Window { id, pid,
+app_id, app_name, title, bounds, monitor, state: WindowState { maximized, minimized, fullscreen,
+topmost }, desktop_id }`. `os::apps::{installed, rescan}`. Linux: `os::linux::{bridge, kwin, gnome,
+desktop, bus}`. `knobdeck_sdk::host_process_id()` is KnobDeck's pid.
 
 `Visual::new().label(..).icon(..).state(..)`
 

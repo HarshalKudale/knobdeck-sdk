@@ -106,20 +106,18 @@ impl Host {
         }
     }
 
-    /// Stub answers, so plugins that call the host keep going. A send_keys call is worth
-    /// noticing: it means the action fell back to keystrokes.
+    /// `send_keys` is the only host call; it gets a stub answer so the plugin keeps going, and is
+    /// worth noticing: the action fell back to keystrokes. Anything else is refused as KnobDeck does.
     fn answer(&mut self, msg: &Value) {
         let method = msg["method"].as_str().unwrap_or("");
-        let value = match method {
-            "focus_app" => json!(true),
-            "installed_apps" => json!([]),
-            _ => Value::Null,
-        };
+        let id = msg["id"].clone();
         if method == "send_keys" {
             println!("  ! send_keys {}: this action types a shortcut; prefer an API (see the skill)", msg["params"]);
+            self.send(json!({"type": "result", "id": id, "ok": true, "value": null}));
+        } else {
+            println!("  ! unknown host call {method:?} (KnobDeck only takes send_keys)");
+            self.send(json!({"type": "result", "id": id, "ok": false, "error": format!("unknown host call method \"{method}\"")}));
         }
-        let id = msg["id"].clone();
-        self.send(json!({"type": "result", "id": id, "ok": true, "value": value}));
     }
 }
 
@@ -201,7 +199,7 @@ pub fn drive(steps_file: Option<&str>) -> Result<(), String> {
     });
     let mut host = Host { stdin, lines, next_id: 0, bad_lines: 0, errors: 0 };
 
-    host.send(json!({"type": "hello", "protocol": 2, "plugin_id": id, "data_dir": data, "host_version": "knobdeck-plugin drive"}));
+    host.send(json!({"type": "hello", "protocol": 2, "plugin_id": id, "data_dir": data, "host_version": "knobdeck-plugin drive", "host_pid": std::process::id()}));
     if host.pump(10_000, |m| m["type"] == "ready").is_none() {
         let _ = child.kill();
         return Err("the plugin never sent `ready` (does main() end with .run()?)".into());
