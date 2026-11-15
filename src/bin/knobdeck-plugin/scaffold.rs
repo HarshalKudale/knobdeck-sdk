@@ -24,7 +24,7 @@ when one exists), the action types, and how to build and test.\n\n\
 - Test over the real protocol: `knobdeck-plugin drive [steps.json]`\n\
 - Package: `knobdeck-plugin build && knobdeck-plugin package`\n";
 
-const SDK_GIT: &str = "knobdeck-sdk = { git = \"https://github.com/HarshalKudale/knobdeck-sdk.git\" }";
+const SDK_GIT: &str = "knobdeck-sdk = { git = \"https://github.com/Knobdeck/knobdeck-sdk.git\" }";
 
 pub struct NewOptions {
     pub dir: PathBuf,

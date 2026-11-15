@@ -7,7 +7,7 @@ protocol, and the `knobdeck-plugin` CLI creates, builds, tests and packages it.
 ## Quick start
 
 ```bash
-cargo install --git https://github.com/HarshalKudale/knobdeck-sdk --bin knobdeck-plugin   # once
+cargo install --git https://github.com/Knobdeck/knobdeck-sdk --bin knobdeck-plugin   # once
 
 knobdeck-plugin new acme-player --name "Acme Player"   # a working crate with three example actions
 cd acme-player
@@ -24,7 +24,7 @@ new crate uses it (add the folder to `members`). Otherwise it depends on this re
 
 ```toml
 [dependencies]
-knobdeck-sdk = { git = "https://github.com/HarshalKudale/knobdeck-sdk.git" }
+knobdeck-sdk = { git = "https://github.com/Knobdeck/knobdeck-sdk.git" }
 ```
 
 ```rust

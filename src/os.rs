@@ -1,5 +1,5 @@
 //! OS context, read in the plugin's own process when an action needs it, from the
-//! [`knobdeck-os`](https://github.com/HarshalKudale/knobdeck-sdk/tree/master/knobdeck-os) crate
+//! [`knobdeck-os`](https://github.com/Knobdeck/knobdeck-sdk/tree/master/knobdeck-os) crate
 //! KnobDeck itself uses. Nothing is synced or pushed to plugins; each part is a Cargo feature:
 //!
 //! - `os-window`: [`window`]: `target()` (the window an action should act on: the frontmost one

@@ -1,6 +1,6 @@
 //! # knobdeck-sdk
 //!
-//! Declarative Rust SDK for authoring [KnobDeck](https://github.com/HarshalKudale/knobdeck)
+//! Declarative Rust SDK for authoring [KnobDeck](https://github.com/Knobdeck/knobdeck)
 //! plugins — the Rust counterpart of `@knobdeck/sdk`. A plugin is a native
 //! executable: declare actions with [`Plugin`] / [`Action`], call `.run()`, and
 //! let the `knobdeck-plugin` CLI generate `manifest.json` / `actions.json`.
