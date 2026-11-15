@@ -31,7 +31,7 @@ pub use knobdeck_os::selection;
 pub use knobdeck_os::clipboard;
 
 #[cfg(feature = "placeholders")]
-pub use knobdeck_os::placeholders;
+pub use knobdeck_os::{input_box, placeholders};
 
 #[cfg(target_os = "linux")]
 pub use knobdeck_os::linux;
