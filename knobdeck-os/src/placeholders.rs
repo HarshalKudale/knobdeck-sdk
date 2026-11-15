@@ -145,11 +145,23 @@ pub fn has_any(text: &str) -> bool {
 /// `Time` and `Input` are handled here, the callback isn't asked for them). A value error, or a
 /// cancelled input box, stops the expansion.
 pub fn expand(text: &str, escape: Escape, value: impl FnMut(Name) -> Result<String>) -> Result<String> {
-    expand_with(text, escape, value, crate::input_box::ask)
+    expand_with(text, escape, value, crate::input_box::ask, |_, v| v)
 }
 
-/// [`expand`] with the input box supplied by the caller (tests).
-fn expand_with(text: &str, escape: Escape, mut value: impl FnMut(Name) -> Result<String>, mut ask: impl FnMut(&str) -> Result<String>) -> Result<String> {
+/// [`expand`], passing every final value (dates and input answers too) through `map` before it
+/// is escaped and inserted: for targets with no safe inline quoting, `map` can stash the value
+/// elsewhere (an environment variable) and return a reference to it, with `Escape::Raw`.
+pub fn expand_mapped(text: &str, escape: Escape, value: impl FnMut(Name) -> Result<String>, map: impl FnMut(Name, String) -> String) -> Result<String> {
+    expand_with(text, escape, value, crate::input_box::ask, map)
+}
+
+fn expand_with(
+    text: &str,
+    escape: Escape,
+    mut value: impl FnMut(Name) -> Result<String>,
+    mut ask: impl FnMut(&str) -> Result<String>,
+    mut map: impl FnMut(Name, String) -> String,
+) -> Result<String> {
     let mut cache: Vec<(Name, String)> = vec![];
     let mut answers: Vec<(String, String)> = vec![];
     let mut out = String::with_capacity(text.len());
@@ -180,6 +192,7 @@ fn expand_with(text: &str, escape: Escape, mut value: impl FnMut(Name) -> Result
                         }
                     },
                 };
+                let v = map(name, v);
                 let esc = mode.unwrap_or(if escape == Escape::Url && at_start { Escape::Raw } else { escape });
                 write_escaped(&mut out, &v, esc);
             }
@@ -292,11 +305,22 @@ mod tests {
         let out = expand_with("git commit -m {input:Message: one line} {input:Message: one line} {input}", Escape::Shell, vals, |p| {
             asked.push(p.to_string());
             Ok("it's".into())
-        });
+        }, |_, v| v);
         assert_eq!(out.unwrap(), r"git commit -m 'it'\''s' 'it'\''s' 'it'\''s'");
         assert_eq!(asked, vec!["Message: one line", "Input"]);
-        let cancelled = expand_with("{input:x}", Escape::Raw, vals, |_| Err(crate::Error::msg(crate::input_box::CANCELLED)));
+        let cancelled = expand_with("{input:x}", Escape::Raw, vals, |_| Err(crate::Error::msg(crate::input_box::CANCELLED)), |_, v| v);
         assert!(crate::input_box::is_cancelled(&cancelled.unwrap_err()));
+    }
+
+    #[test]
+    fn mapped_values_replace_every_kind() {
+        let mut seen = vec![];
+        let out = expand_with("{app} {date:%Y} {input:Q}", Escape::Raw, vals, |_| Ok("a & b".into()), |n, v| {
+            seen.push((n, v));
+            format!("%{}%", n.as_str())
+        });
+        assert_eq!(out.unwrap(), "%app% %date% %input%");
+        assert_eq!(seen[2], (Name::Input, "a & b".to_string()));
     }
 
     #[test]
