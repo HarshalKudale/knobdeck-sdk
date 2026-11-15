@@ -10,7 +10,7 @@ Route: the service's public HTTP API (no key). A live label refreshes every minu
 `Cargo.toml` dependencies:
 
 ```toml
-knobdeck-sdk = { git = "https://github.com/HarshalKudale/knobdeck-sdk.git" }
+knobdeck-sdk = { git = "https://github.com/Knobdeck/knobdeck-sdk.git" }
 ureq = { version = "2", features = ["json"] }
 ```
 
@@ -78,7 +78,7 @@ long-lived token; a query lists entities so users pick from a list instead of ty
 
 ```toml
 [dependencies]
-knobdeck-sdk = { git = "https://github.com/HarshalKudale/knobdeck-sdk.git", features = ["secrets"] }
+knobdeck-sdk = { git = "https://github.com/Knobdeck/knobdeck-sdk.git", features = ["secrets"] }
 ureq = { version = "2", features = ["json"] }
 
 [[bin]]

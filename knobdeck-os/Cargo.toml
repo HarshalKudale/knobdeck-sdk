@@ -4,7 +4,7 @@ version = "0.3.0"
 edition = "2021"
 description = "Windows, focus, selection, clipboard and installed apps on Windows, macOS and Linux: one implementation for the KnobDeck host and its plugins"
 license = "MIT"
-repository = "https://github.com/HarshalKudale/knobdeck-sdk"
+repository = "https://github.com/Knobdeck/knobdeck-sdk"
 
 [features]
 default = ["window", "apps"]

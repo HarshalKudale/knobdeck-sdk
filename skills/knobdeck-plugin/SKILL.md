@@ -17,7 +17,7 @@ and write handlers. The `knobdeck-plugin` CLI builds, assembles, tests and packa
 2. **Scaffold:** `knobdeck-plugin new <folder> --name "<Display Name>"` (add `--os macos` etc. for a
    one-OS plugin). It writes a working crate: `Cargo.toml`, `src/main.rs` with three example
    actions, `readme.md`, `.gitignore`, and this skill. Install the CLI first if `knobdeck-plugin`
-   isn't on PATH: `cargo install --git https://github.com/HarshalKudale/knobdeck-sdk --bin knobdeck-plugin`.
+   isn't on PATH: `cargo install --git https://github.com/Knobdeck/knobdeck-sdk --bin knobdeck-plugin`.
 3. **Replace the examples** in `src/main.rs` with the real actions.
 4. **Build:** `knobdeck-plugin dev` (debug build into `dist/<id>/`). Fix every compiler warning.
 5. **Test over the protocol:** `knobdeck-plugin drive` starts the built plugin as KnobDeck would,
