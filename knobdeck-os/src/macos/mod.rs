@@ -26,3 +26,9 @@ pub(crate) mod clipboard;
 
 #[cfg(feature = "files")]
 pub(crate) mod files;
+
+#[cfg(feature = "document")]
+pub(crate) mod document;
+
+#[cfg(feature = "pointer")]
+pub(crate) mod pointer;

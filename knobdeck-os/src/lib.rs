@@ -11,6 +11,9 @@
 //! - [`selection`]: the selected text of the target app.
 //! - [`clipboard`]: the clipboard's kinds, text, files and image (read only).
 //! - [`files`]: the files selected in File Explorer / Finder / Dolphin, and the folder shown.
+//! - [`document`]: the file the target window has open (macOS).
+//! - [`browser`]: the target browser's current tab: address and title.
+//! - [`pointer`]: the pointer's position and the UI element under it.
 //! - [`placeholders`]: `{selection}`, `{files}`, `{clipboard}`, `{date}`… in action text: parse, escape, expand.
 //!
 //! Nothing here polls: [`window::watch`] runs on the OS's own events and stops when its handle
@@ -50,6 +53,18 @@ pub mod clipboard;
 #[cfg(feature = "files")]
 pub mod files;
 
+#[cfg(feature = "document")]
+pub mod document;
+
+#[cfg(feature = "browser")]
+pub mod browser;
+
+#[cfg(feature = "pointer")]
+pub mod pointer;
+
+#[cfg(all(windows, feature = "pointer"))]
+mod win_pointer;
+
 #[cfg(feature = "placeholders")]
 pub mod placeholders;
 
@@ -86,6 +101,26 @@ pub(crate) fn cap_text(mut s: String) -> String {
         s.truncate(end);
     }
     s
+}
+
+/// `%20` → space, in a `file://` URI's path.
+#[allow(dead_code)]
+pub(crate) fn percent_decode(s: &str) -> String {
+    let b = s.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'%' && i + 2 < b.len() {
+            if let Ok(v) = u8::from_str_radix(std::str::from_utf8(&b[i + 1..i + 3]).unwrap_or("zz"), 16) {
+                out.push(v);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(b[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
 }
 
 #[cfg(test)]

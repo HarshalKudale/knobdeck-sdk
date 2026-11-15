@@ -18,6 +18,8 @@ pub(crate) mod atspi;
 pub(crate) mod clipboard;
 #[cfg(feature = "files")]
 pub(crate) mod files;
+#[cfg(feature = "pointer")]
+pub(crate) mod pointer;
 #[cfg(feature = "window")]
 mod hypr;
 #[cfg(feature = "window")]

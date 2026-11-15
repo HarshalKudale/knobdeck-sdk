@@ -11,7 +11,7 @@
 //! Each kind exists only with its SDK feature (`os-window`, `os-focus`, `os-selection`,
 //! `os-files`, `os-clipboard`), so naming one that isn't enabled doesn't compile.
 
-#![cfg_attr(not(any(feature = "os-window", feature = "os-focus", feature = "os-selection", feature = "os-files", feature = "os-clipboard")), allow(dead_code, unused_imports, unreachable_code, unused_variables))]
+#![cfg_attr(not(any(feature = "os-window", feature = "os-focus", feature = "os-selection", feature = "os-files", feature = "os-clipboard", feature = "os-document", feature = "os-browser", feature = "os-pointer")), allow(dead_code, unused_imports, unreachable_code, unused_variables))]
 
 use std::collections::HashMap;
 use std::sync::{mpsc, Arc, Mutex, OnceLock};
@@ -36,6 +36,15 @@ pub enum Need {
     /// The files selected in the target file manager: [`Ctx::files`](crate::Ctx::files).
     #[cfg(feature = "os-files")]
     Files,
+    /// The file the target window has open (macOS): [`Ctx::document`](crate::Ctx::document).
+    #[cfg(feature = "os-document")]
+    Document,
+    /// The target browser's current tab: [`Ctx::browser_tab`](crate::Ctx::browser_tab).
+    #[cfg(feature = "os-browser")]
+    Browser,
+    /// The pointer's position: [`Ctx::pointer`](crate::Ctx::pointer).
+    #[cfg(feature = "os-pointer")]
+    Pointer,
     /// The clipboard's text and files: [`Ctx::clipboard_text`](crate::Ctx::clipboard_text),
     /// [`Ctx::clipboard_files`](crate::Ctx::clipboard_files).
     #[cfg(feature = "os-clipboard")]
@@ -54,6 +63,12 @@ impl Need {
             Need::Selection => "selection",
             #[cfg(feature = "os-files")]
             Need::Files => "files",
+            #[cfg(feature = "os-document")]
+            Need::Document => "document",
+            #[cfg(feature = "os-browser")]
+            Need::Browser => "browser",
+            #[cfg(feature = "os-pointer")]
+            Need::Pointer => "pointer",
             #[cfg(feature = "os-clipboard")]
             Need::Clipboard => "clipboard",
         }
@@ -82,6 +97,15 @@ pub(crate) fn uses() -> Vec<&'static str> {
     if cfg!(feature = "os-clipboard") {
         u.push("clipboard");
     }
+    if cfg!(feature = "os-document") {
+        u.push("document");
+    }
+    if cfg!(feature = "os-browser") {
+        u.push("browser");
+    }
+    if cfg!(feature = "os-pointer") {
+        u.push("pointer");
+    }
     u
 }
 
@@ -108,6 +132,12 @@ pub(crate) struct Context {
     pub folder: OnceLock<Option<std::path::PathBuf>>,
     #[cfg(feature = "os-clipboard")]
     pub clipboard: OnceLock<Option<Clip>>,
+    #[cfg(feature = "os-document")]
+    pub document: OnceLock<Option<std::path::PathBuf>>,
+    #[cfg(feature = "os-browser")]
+    pub browser: OnceLock<Option<crate::os::browser::Tab>>,
+    #[cfg(feature = "os-pointer")]
+    pub pointer: OnceLock<Option<(f64, f64)>>,
     pub errors: Mutex<HashMap<&'static str, String>>,
 }
 
@@ -153,6 +183,33 @@ impl Context {
                     }
                 });
             }
+            #[cfg(feature = "os-document")]
+            Need::Document => {
+                self.document.get_or_init(|| crate::os::document::path().unwrap_or_else(|e| {
+                    self.fail("document", e);
+                    None
+                }));
+            }
+            #[cfg(feature = "os-browser")]
+            Need::Browser => {
+                self.browser.get_or_init(|| match crate::os::browser::tab() {
+                    Ok(t) => Some(t),
+                    Err(e) => {
+                        self.fail("browser", e);
+                        None
+                    }
+                });
+            }
+            #[cfg(feature = "os-pointer")]
+            Need::Pointer => {
+                self.pointer.get_or_init(|| match crate::os::pointer::position() {
+                    Ok(p) => Some(p),
+                    Err(e) => {
+                        self.fail("pointer", e);
+                        None
+                    }
+                });
+            }
             #[cfg(feature = "os-clipboard")]
             Need::Clipboard => {
                 self.clipboard.get_or_init(|| {
@@ -184,6 +241,12 @@ impl Context {
             Need::Files => self.files.set(None).is_ok(),
             #[cfg(feature = "os-clipboard")]
             Need::Clipboard => self.clipboard.set(None).is_ok(),
+            #[cfg(feature = "os-document")]
+            Need::Document => self.document.set(None).is_ok(),
+            #[cfg(feature = "os-browser")]
+            Need::Browser => self.browser.set(None).is_ok(),
+            #[cfg(feature = "os-pointer")]
+            Need::Pointer => self.pointer.set(None).is_ok(),
         };
         if set {
             self.fail(need.as_str(), why);
@@ -252,6 +315,21 @@ impl Context {
                 })
             })
             .as_deref()
+    }
+    #[cfg(feature = "os-document")]
+    pub fn document(&self) -> Option<&std::path::Path> {
+        self.read(Need::Document);
+        self.document.get().and_then(|d| d.as_deref())
+    }
+    #[cfg(feature = "os-browser")]
+    pub fn browser(&self) -> Option<&crate::os::browser::Tab> {
+        self.read(Need::Browser);
+        self.browser.get().and_then(Option::as_ref)
+    }
+    #[cfg(feature = "os-pointer")]
+    pub fn pointer(&self) -> Option<(f64, f64)> {
+        self.read(Need::Pointer);
+        self.pointer.get().copied().flatten()
     }
     #[cfg(feature = "os-clipboard")]
     pub fn clip(&self) -> Option<&Clip> {

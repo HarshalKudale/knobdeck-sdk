@@ -174,7 +174,24 @@ impl Ctx {
     pub fn folder(&self) -> Option<&std::path::Path> {
         self.context.folder()
     }
-    /// Replace the placeholders in `text` (`{selection}`, `{files}`, `{file}`, `{clipboard}`, `{app}`, `{title}`,
+    /// The file the target window has open (macOS; elsewhere `None`, with the reason in
+    /// [`Ctx::context_error`]).
+    #[cfg(feature = "os-document")]
+    pub fn document(&self) -> Option<&std::path::Path> {
+        self.context.document()
+    }
+    /// The target browser's current tab (`url` where the OS lets it be read, `title`).
+    #[cfg(feature = "os-browser")]
+    pub fn browser_tab(&self) -> Option<&crate::os::browser::Tab> {
+        self.context.browser()
+    }
+    /// The pointer's position when the action ran, in the space of window bounds.
+    #[cfg(feature = "os-pointer")]
+    pub fn pointer(&self) -> Option<(f64, f64)> {
+        self.context.pointer()
+    }
+    /// Replace the placeholders in `text` (`{selection}`, `{files}`, `{file}`, `{clipboard}`,
+    /// `{url}`, `{document}`, `{app}`, `{title}`,
     /// `{date}`, `{date:%d %B}`, `{time}`, `{input:Prompt}`, `{{` / `}}` for braces), reading only
     /// what it uses. A value that can't be read is empty. Other text in braces is left alone.
     /// `{input:…}` shows the OS's input box; if the user cancels it, this returns an error that
@@ -197,6 +214,8 @@ impl Ctx {
                 Name::Clipboard => c.clip().and_then(|c| c.text.clone()).unwrap_or_default(),
                 Name::App => c.window().map(|w| w.app_name.clone().unwrap_or_else(|| w.app_id.clone())).unwrap_or_default(),
                 Name::Title => c.window().and_then(|w| w.title.clone()).unwrap_or_default(),
+                Name::Url => c.browser().and_then(|t| t.url.clone()).unwrap_or_default(),
+                Name::Document => c.document().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default(),
                 Name::Date | Name::Time | Name::Input => String::new(), // filled in by the parser
             })
         })

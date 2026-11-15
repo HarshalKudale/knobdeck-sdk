@@ -164,7 +164,8 @@ The host sends no OS context. Read it in the plugin, only when an action needs i
 window class / app id on Linux. Don't send keystrokes to bring an app forward: use `focus_app`.
 
 For the selected text, the focused element, the selected files (File Explorer, Finder, Dolphin)
-and the clipboard, enable `os-selection`, `os-focus`, `os-files` or `os-clipboard`. Then declare the need on the action and read it from `ctx`:
+the clipboard, the open document (macOS), the browser's current tab and the pointer, enable
+`os-selection`, `os-focus`, `os-files`, `os-clipboard`, `os-document`, `os-browser` or `os-pointer`. Then declare the need on the action and read it from `ctx`:
 `.needs(&[Need::Selection]).on_press(|ctx| { let t = ctx.selection(); … })`.
 When a reader returns `None`, `ctx.context_error(Need::Selection)` says why. Don't send Ctrl+C
 to read a selection. `os::selection::text_via_copy` is the opt-in fallback for apps that
