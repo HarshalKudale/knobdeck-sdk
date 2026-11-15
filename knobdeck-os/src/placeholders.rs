@@ -85,7 +85,7 @@ pub enum Escape {
     Url,
     /// Single-quoted for a POSIX shell (sh, bash, zsh, fish): `'it'\''s'`.
     Shell,
-    /// An AppleScript string literal: `"say \"hi\""`. `{files}` becomes a list of them:
+    /// An AppleScript (and JXA) string literal: `"say \"hi\""`, newlines as `\n`. `{files}` becomes a list of them:
     /// `{"/a", "/b"}`.
     AppleScript,
 }
@@ -301,6 +301,10 @@ fn write_escaped(out: &mut String, v: &str, esc: Escape) {
                 match c {
                     '"' => out.push_str("\\\""),
                     '\\' => out.push_str("\\\\"),
+                    // Valid in AppleScript and JavaScript (JXA) string literals alike.
+                    '\n' => out.push_str("\\n"),
+                    '\r' => out.push_str("\\r"),
+                    '\t' => out.push_str("\\t"),
                     c => out.push(c),
                 }
             }
@@ -366,6 +370,7 @@ mod tests {
         assert_eq!(expand("display dialog {selection}", Escape::AppleScript, |_| Ok(r#"say "hi" \ bye"#.into())).unwrap(), r#"display dialog "say \"hi\" \\ bye""#);
         assert_eq!(expand("set f to {files}", Escape::AppleScript, vals).unwrap(), r#"set f to {"/a/it's.png", "/b/c d.jpg"}"#);
         assert_eq!(expand("{file}", Escape::AppleScript, vals).unwrap(), r#""/a/it's.png""#);
+        assert_eq!(expand("{selection}", Escape::AppleScript, |_| Ok("a\nb\tc".into())).unwrap(), r#""a\nb\tc""#);
         assert_eq!(expand("{selection:applescript}", Escape::Raw, |_| Ok("x".into())).unwrap(), r#""x""#);
     }
 
