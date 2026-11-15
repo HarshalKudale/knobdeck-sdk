@@ -6,6 +6,11 @@
 // Linux Tools plugin need on the session bus as `dev.knobdeck.Shell` (/dev/knobdeck/Shell):
 //
 //   Call(command s, args s) -> (result s)   result is JSON: {"ok": value} or {"error": "text"}
+//   Clipboard(which s, prefs as) -> (types as, mime s, data ay)
+//                                           the clipboard's ("clipboard") or the PRIMARY
+//                                           selection's ("primary") mime types, and the data of
+//                                           the first of `prefs` it offers ("image/*" matches
+//                                           any image); empty prefs: types only
 //   signal WindowChanged()                  the focused window changed, or its title or
 //                                           maximize / full screen / minimize / above state did
 //
@@ -14,6 +19,7 @@
 // knobdeck-os crate; installed and updated by the Linux Tools plugin.
 
 import Gio from 'gi://Gio';
+import GLib from 'gi://GLib';
 import Meta from 'gi://Meta';
 import Shell from 'gi://Shell';
 import St from 'gi://St';
@@ -23,7 +29,7 @@ import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 
 const BUS_NAME = 'dev.knobdeck.Shell';
 const OBJECT_PATH = '/dev/knobdeck/Shell';
-const VERSION = 2;
+const VERSION = 3;
 const MAX_CLIPS = 30;
 
 const IFACE = `
@@ -33,6 +39,13 @@ const IFACE = `
       <arg type="s" direction="in" name="command"/>
       <arg type="s" direction="in" name="args"/>
       <arg type="s" direction="out" name="result"/>
+    </method>
+    <method name="Clipboard">
+      <arg type="s" direction="in" name="which"/>
+      <arg type="as" direction="in" name="prefs"/>
+      <arg type="as" direction="out" name="types"/>
+      <arg type="s" direction="out" name="mime"/>
+      <arg type="ay" direction="out" name="data"/>
     </method>
     <property name="Version" type="u" access="read"/>
     <signal name="WindowChanged"/>
@@ -194,6 +207,34 @@ class Bridge {
             return JSON.stringify({ok: value === undefined ? null : value});
         } catch (e) {
             return JSON.stringify({error: String(e?.message ?? e)});
+        }
+    }
+
+    // Async: St.Clipboard hands the data over in a callback.
+    ClipboardAsync([which, prefs], invocation) {
+        const reply = (types, mime, data) =>
+            invocation.return_value(new GLib.Variant('(assay)', [types, mime, data ?? new Uint8Array()]));
+        try {
+            const type = which === 'primary' ? St.ClipboardType.PRIMARY : St.ClipboardType.CLIPBOARD;
+            const clipboard = St.Clipboard.get_default();
+            const types = clipboard.get_mimetypes(type) ?? [];
+            let mime = '';
+            for (const p of prefs) {
+                const hit = p.endsWith('*')
+                    ? types.find(t => t.startsWith(p.slice(0, -1)))
+                    : types.find(t => t.toLowerCase() === p.toLowerCase());
+                if (hit) {
+                    mime = hit;
+                    break;
+                }
+            }
+            if (!mime) {
+                reply(types, '', null);
+                return;
+            }
+            clipboard.get_content(type, mime, (_cb, bytes) => reply(types, mime, bytes?.get_data() ?? null));
+        } catch (e) {
+            invocation.return_dbus_error('dev.knobdeck.Shell.Error', String(e?.message ?? e));
         }
     }
 

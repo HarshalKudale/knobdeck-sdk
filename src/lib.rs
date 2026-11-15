@@ -11,12 +11,13 @@
 //! host ack is sent before the handler starts.
 
 mod codegen;
+mod context;
 mod ctx;
 mod error;
 mod host;
 pub mod input;
 mod log;
-#[cfg(any(feature = "os-window", feature = "os-apps"))]
+#[cfg(any(feature = "os-window", feature = "os-apps", feature = "os-clipboard"))]
 pub mod os;
 #[cfg(feature = "oauth")]
 pub mod oauth;
@@ -27,6 +28,7 @@ pub mod secrets;
 mod setup;
 
 pub use codegen::{make_full_id, Stage};
+pub use context::Need;
 pub use ctx::{Ctx, Event, InitialCtx, OpenCtx, QueryCtx};
 pub use error::{Error, Result};
 pub use host::send_keys;

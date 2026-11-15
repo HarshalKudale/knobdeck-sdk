@@ -154,7 +154,7 @@ Without `.platforms(..)` a plugin or action is offered everywhere. Put OS differ
 on each OS into the same `dist/<id>/` and `package` produces one `.knobdeck` holding every OS's
 binary.
 
-## OS context (the window, installed apps)
+## OS context (the window, selection, clipboard, installed apps)
 
 The host sends no OS context. Read it in the plugin, only when an action needs it, through
 `knobdeck_sdk::os` with the SDK features `os-window` / `os-apps`:
@@ -162,6 +162,13 @@ The host sends no OS context. Read it in the plugin, only when an action needs i
 `bounds`), `os::window::list()`, `os::window::focus(&w.id)`, `os::window::focus_app(app, hint)`,
 `os::apps::installed()`. `app_id` is the exe name on Windows, the bundle id on macOS and the
 window class / app id on Linux. Don't send keystrokes to bring an app forward: use `focus_app`.
+
+For the selected text, the focused element and the clipboard, enable `os-selection`, `os-focus` or
+`os-clipboard`. Then declare the need on the action and read it from `ctx`:
+`.needs(&[Need::Selection]).on_press(|ctx| { let t = ctx.selection(); … })`.
+When a reader returns `None`, `ctx.context_error(Need::Selection)` says why. Don't send Ctrl+C
+to read a selection. `os::selection::text_via_copy` is the opt-in fallback for apps that
+don't expose one.
 
 ## Testing
 

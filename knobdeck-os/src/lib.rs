@@ -7,6 +7,9 @@
 //! - [`window`]: the foreground window, the *target* window (the frontmost one that isn't
 //!   KnobDeck's), the window list, focusing a window or an app, and an event-driven watcher.
 //! - [`apps`]: the installed apps (Start menu / `.app` bundles / XDG desktop entries).
+//! - [`focus`]: the focused UI element of the target app (role, editable, password).
+//! - [`selection`]: the selected text of the target app.
+//! - [`clipboard`]: the clipboard's kinds, text, files and image (read only).
 //!
 //! Nothing here polls: [`window::watch`] runs on the OS's own events and stops when its handle
 //! is dropped.
@@ -32,3 +35,51 @@ pub mod macos;
 
 #[cfg(all(windows, feature = "window"))]
 mod win;
+
+#[cfg(feature = "focus")]
+pub mod focus;
+
+#[cfg(feature = "selection")]
+pub mod selection;
+
+#[cfg(feature = "clipboard")]
+pub mod clipboard;
+
+#[cfg(all(windows, feature = "focus"))]
+mod win_focus;
+
+#[cfg(all(windows, feature = "clipboard"))]
+mod win_clipboard;
+
+/// Longest text returned by the selection and clipboard readers (1 MiB).
+#[allow(dead_code)]
+pub(crate) const MAX_TEXT: usize = 1 << 20;
+
+/// The error for an app that doesn't expose its focus or selection.
+#[allow(dead_code)]
+pub(crate) fn not_exposed() -> Error {
+    Error::msg("This app doesn't expose its focused element or selected text")
+}
+
+/// Cut text at [`MAX_TEXT`], on a character boundary.
+#[allow(dead_code)]
+pub(crate) fn cap_text(mut s: String) -> String {
+    if s.len() > MAX_TEXT {
+        let mut end = MAX_TEXT;
+        while !s.is_char_boundary(end) {
+            end -= 1;
+        }
+        s.truncate(end);
+    }
+    s
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn caps_at_a_char_boundary() {
+        let c = super::cap_text("é".repeat(super::MAX_TEXT)); // 2 bytes each
+        assert!(c.len() <= super::MAX_TEXT && c.is_char_boundary(c.len()));
+        assert_eq!(super::cap_text("ab".into()), "ab");
+    }
+}

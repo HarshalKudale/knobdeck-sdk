@@ -57,13 +57,22 @@ Fields: `instance_id`, `action_id`, `trigger` (`press`, `adjust`, `hold_start`, 
 | `send_keys(keys)` | the only host call; last resort |
 | `focus_app(app)` | os-window: the app's frontmost window to the front (in this process) |
 | `installed_apps()` | os-apps: cached `Vec<InstalledApp>` (`label`, `value`, `executable`, `working_dir`) |
+| `window()` `focus()` `selection()` `clipboard_text()` `clipboard_files()` | OS context, read once per press (lazy; prefetched by `.needs`) |
+| `context_error(Need::Selection)` | why a context reader returned `None` |
 
-## os (features `os-window`, `os-apps`)
+`Action::needs(&[Need::Window | Focus | Selection | Clipboard])`: read before the handler runs
+(parallel, 300 ms budget, `.needs_timeout(d)`), listed in `actions.json` `needs`. Each `Need` needs
+its feature (`os-window`, `os-focus`, `os-selection`, `os-clipboard`).
+
+## os (features `os-window`, `os-apps`, `os-focus`, `os-selection`, `os-clipboard`)
 
 `os::window::{target, foreground, list, focus, focus_app, watch, wait_for}`; `Window { id, pid,
 app_id, app_name, title, bounds, monitor, state: WindowState { maximized, minimized, fullscreen,
 topmost }, desktop_id }`. `os::apps::{installed, rescan}`. Linux: `os::linux::{bridge, kwin, gnome,
 desktop, bus}`. `knobdeck_sdk::host_process_id()` is KnobDeck's pid.
+`os::focus::element() -> Option<Element { role, editable, password, pid }>`.
+`os::selection::{text, text_via_copy(send_copy_keys)}` (1 MiB cap; never a password field).
+`os::clipboard::{types -> [Kind::Text|Files|Image|Html], text, files, image -> Image { mime, bytes }}`.
 
 `Visual::new().label(..).icon(..).state(..)`
 

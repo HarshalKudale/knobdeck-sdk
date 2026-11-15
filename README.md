@@ -111,6 +111,7 @@ ctx.state; ctx.trigger; ctx.child_id; ctx.value; ctx.delta;
 ctx.send_keys("ctrl+m")?;       // host call, last resort
 ctx.focus_app("code.exe")?;     // feature os-window: in this process
 ctx.installed_apps();           // feature os-apps
+ctx.selection(); ctx.window();  // OS context, read once per press (see OS context)
 ctx.mark_setup_required("Discord token expired");   // host stops the plugin, asks for setup
 ctx.data_dir();                 // plugin-data/<id> — survives updates (see Data and logs)
 ```
@@ -133,7 +134,8 @@ pickers, and won't start a plugin whose `platforms` exclude its OS.
 
 The protocol carries no OS context. A plugin reads what an action needs itself, in its own process,
 through `knobdeck_sdk::os` (the [`knobdeck-os`](knobdeck-os/) crate KnobDeck uses too). Each part
-is a Cargo feature: `knobdeck-sdk = { ..., features = ["os-window", "os-apps"] }`.
+is a Cargo feature: `knobdeck-sdk = { ..., features = ["os-window", "os-apps"] }` (also `os-focus`,
+`os-selection`, `os-clipboard`).
 
 ```rust
 use knobdeck_sdk::os::window;
@@ -144,6 +146,46 @@ window::focus(&w.id)?;                         // bring one to the front
 window::focus_app("firefox", None)?;           // an app's frontmost window; Ok(false) if none open
 knobdeck_sdk::os::apps::installed();           // os-apps: [{label, value, executable, working_dir}]
 ```
+
+The focused element, the selected text and the clipboard work the same way, with the features
+`os-focus`, `os-selection` and `os-clipboard`. In a handler, read them through `Ctx` and declare
+them with `.needs()`. The runtime then reads them in parallel before the handler runs, within a
+time budget (300 ms by default, `.needs_timeout(..)` to change it). The plugins page also lists
+them.
+
+```rust
+use knobdeck_sdk::Need;
+Action::button("search", "Search selection")
+    .needs(&[Need::Selection])
+    .on_press(|ctx| match ctx.selection() {
+        Some(text) => open_search(text),
+        None => ctx.fail(ctx.context_error(Need::Selection).unwrap_or("Select some text first".into())),
+    })
+
+ctx.window();            // os-window: the target window
+ctx.focus();             // os-focus: { role, editable, password }
+ctx.selection();         // os-selection: never from a password field
+ctx.clipboard_text();    // os-clipboard
+ctx.clipboard_files();   // os-clipboard: copied in Explorer / Finder / a file manager
+knobdeck_sdk::os::clipboard::image()?;   // { mime, bytes }: PNG, TIFF (macOS) or BMP (Windows)
+knobdeck_sdk::os::selection::text_via_copy(|| knobdeck_sdk::send_keys("ctrl+c"))?; // opt-in, see below
+```
+
+The readers are lazy: without `.needs()` the first call reads the OS. A reader returns `None`
+when there is nothing to read or the read failed; `ctx.context_error(need)` says why ("This app
+doesn't expose its selected text"). Each `Need` exists only with its feature, so naming one that
+isn't enabled doesn't compile. The manifest's `uses` lists the features the binary was built with.
+
+Where the values come from:
+- **Selection:** UI Automation `TextPattern` (Windows), `AXSelectedText` (macOS), AT-SPI (Linux).
+  On Linux, apps that aren't on the accessibility bus fall back to the PRIMARY selection.
+- **Clipboard:** the Win32 clipboard, `NSPasteboard`, and on Linux the compositor:
+  `ext-data-control` / `wlr-data-control` on KDE Plasma, Hyprland and wlroots, the KnobDeck Shell
+  extension (version 3) on GNOME, or the X selection.
+- **`text_via_copy`** is for apps that expose no selection, like Electron apps. On macOS it
+  presses the app's Edit ▸ Copy menu item. On Windows it sends the copy keystroke you pass in,
+  which is a keystroke, so it is opt-in. Either way it then reads the clipboard and puts the
+  previous clipboard back. It isn't supported on Linux yet.
 
 `target()` skips KnobDeck's windows (the host's pid comes in `hello`), so a slider that keeps the
 dial focused still acts on the app under it. `.volatile()` actions re-run `initial()` from an
