@@ -39,7 +39,7 @@ pub(crate) fn not_a_file_manager() -> crate::Error {
     } else if cfg!(target_os = "macos") {
         "Select files in Finder first"
     } else {
-        "Select files in Dolphin or Files (Nautilus) first"
+        "Select files in Dolphin first"
     })
 }
 
