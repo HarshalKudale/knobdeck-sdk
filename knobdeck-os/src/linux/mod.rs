@@ -16,6 +16,8 @@ pub mod kwin;
 pub(crate) mod atspi;
 #[cfg(feature = "clipboard")]
 pub(crate) mod clipboard;
+#[cfg(feature = "files")]
+pub(crate) mod files;
 #[cfg(feature = "window")]
 mod hypr;
 #[cfg(feature = "window")]

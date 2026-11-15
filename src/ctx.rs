@@ -162,7 +162,19 @@ impl Ctx {
     pub fn clipboard_files(&self) -> &[std::path::PathBuf] {
         self.context.clip().map_or(&[], |c| c.files.as_slice())
     }
-    /// Replace the placeholders in `text` (`{selection}`, `{clipboard}`, `{app}`, `{title}`,
+    /// The files and folders selected in the target file manager (File Explorer, the desktop,
+    /// Finder, Dolphin). Empty when nothing is selected or the target isn't a file manager (the
+    /// reason is in [`Ctx::context_error`]`(Need::Files)`).
+    #[cfg(feature = "os-files")]
+    pub fn files(&self) -> &[std::path::PathBuf] {
+        self.context.files().unwrap_or(&[])
+    }
+    /// The folder the target file manager window shows (the selection's folder on Linux).
+    #[cfg(feature = "os-files")]
+    pub fn folder(&self) -> Option<&std::path::Path> {
+        self.context.folder()
+    }
+    /// Replace the placeholders in `text` (`{selection}`, `{files}`, `{file}`, `{clipboard}`, `{app}`, `{title}`,
     /// `{date}`, `{date:%d %B}`, `{time}`, `{input:Prompt}`, `{{` / `}}` for braces), reading only
     /// what it uses. A value that can't be read is empty. Other text in braces is left alone.
     /// `{input:…}` shows the OS's input box; if the user cancels it, this returns an error that
@@ -179,6 +191,9 @@ impl Ctx {
         expand(text, escape, |name| {
             Ok(match name {
                 Name::Selection => c.selection().unwrap_or_default().to_string(),
+                Name::Files | Name::File => {
+                    c.files().unwrap_or_default().iter().map(|p| p.to_string_lossy()).collect::<Vec<_>>().join("\n")
+                }
                 Name::Clipboard => c.clip().and_then(|c| c.text.clone()).unwrap_or_default(),
                 Name::App => c.window().map(|w| w.app_name.clone().unwrap_or_else(|| w.app_id.clone())).unwrap_or_default(),
                 Name::Title => c.window().and_then(|w| w.title.clone()).unwrap_or_default(),
@@ -253,6 +268,12 @@ input_readers!(OpenCtx);
 impl OpenCtx {
     pub fn log(&self, msg: impl AsRef<str>) {
         log(msg)
+    }
+    /// The files selected in the target file manager, read now (a wheel that fits its slices to
+    /// the selection). An error when the target isn't a file manager.
+    #[cfg(feature = "os-files")]
+    pub fn files(&self) -> Result<Vec<std::path::PathBuf>> {
+        Ok(crate::os::files::selected()?)
     }
     pub fn fail<T>(&self, message: impl ToString) -> Result<T> {
         let m = message.to_string();

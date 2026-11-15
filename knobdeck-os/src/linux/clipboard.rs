@@ -97,6 +97,15 @@ pub fn files() -> Result<Vec<PathBuf>> {
     })
 }
 
+/// The files in the PRIMARY selection (a file manager's selected items).
+#[cfg(feature = "files")]
+pub(crate) fn primary_files() -> Result<Vec<PathBuf>> {
+    Ok(match read(Sel::Primary, FILES)?.1 {
+        Some((_, b)) => parse_uri_list(&String::from_utf8_lossy(&b)),
+        None => vec![],
+    })
+}
+
 pub fn image() -> Result<Option<Image>> {
     Ok(read(Sel::Clipboard, IMAGE)?.1.map(|(mime, bytes)| Image { mime, bytes }))
 }

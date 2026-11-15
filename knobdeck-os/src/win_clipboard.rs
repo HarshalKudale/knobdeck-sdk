@@ -1,5 +1,7 @@
 //! Windows clipboard through the Win32 clipboard API, read only (plus the snapshot / restore
 //! that [`crate::selection::text_via_copy`] uses to put the user's clipboard back).
+// Snapshot / restore is only used with `selection`.
+#![cfg_attr(not(feature = "selection"), allow(dead_code, unused_imports))]
 
 use crate::clipboard::{Image, Kind};
 use crate::{Error, Result};

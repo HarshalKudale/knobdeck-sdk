@@ -23,3 +23,6 @@ pub(crate) mod focus;
 
 #[cfg(feature = "clipboard")]
 pub(crate) mod clipboard;
+
+#[cfg(feature = "files")]
+pub(crate) mod files;

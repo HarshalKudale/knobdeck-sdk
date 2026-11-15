@@ -135,7 +135,7 @@ pickers, and won't start a plugin whose `platforms` exclude its OS.
 The protocol carries no OS context. A plugin reads what an action needs itself, in its own process,
 through `knobdeck_sdk::os` (the [`knobdeck-os`](knobdeck-os/) crate KnobDeck uses too). Each part
 is a Cargo feature: `knobdeck-sdk = { ..., features = ["os-window", "os-apps"] }` (also `os-focus`,
-`os-selection`, `os-clipboard`).
+`os-selection`, `os-files`, `os-clipboard`).
 
 ```rust
 use knobdeck_sdk::os::window;
@@ -147,8 +147,8 @@ window::focus_app("firefox", None)?;           // an app's frontmost window; Ok(
 knobdeck_sdk::os::apps::installed();           // os-apps: [{label, value, executable, working_dir}]
 ```
 
-The focused element, the selected text and the clipboard work the same way, with the features
-`os-focus`, `os-selection` and `os-clipboard`. In a handler, read them through `Ctx` and declare
+The focused element, the selected text, the selected files and the clipboard work the same way,
+with the features `os-focus`, `os-selection`, `os-files` and `os-clipboard`. In a handler, read them through `Ctx` and declare
 them with `.needs()`. The runtime then reads them in parallel before the handler runs, within a
 time budget (300 ms by default, `.needs_timeout(..)` to change it). The plugins page also lists
 them.
@@ -165,6 +165,8 @@ Action::button("search", "Search selection")
 ctx.window();            // os-window: the target window
 ctx.focus();             // os-focus: { role, editable, password }
 ctx.selection();         // os-selection: never from a password field
+ctx.files();             // os-files: selected in File Explorer / the desktop / Finder / Dolphin
+ctx.folder();            // os-files: the folder that window shows
 ctx.clipboard_text();    // os-clipboard
 ctx.clipboard_files();   // os-clipboard: copied in Explorer / Finder / a file manager
 knobdeck_sdk::os::clipboard::image()?;   // { mime, bytes }: PNG, TIFF (macOS) or BMP (Windows)
@@ -179,6 +181,10 @@ isn't enabled doesn't compile. The manifest's `uses` lists the features the bina
 Where the values come from:
 - **Selection:** UI Automation `TextPattern` (Windows), `AXSelectedText` (macOS), AT-SPI (Linux).
   On Linux, apps that aren't on the accessibility bus fall back to the PRIMARY selection.
+- **Files:** File Explorer and the desktop through the Shell's COM objects (the active tab of
+  the target window), Finder through Apple Events (macOS asks once for the Automation permission
+  to control Finder), and on Linux the PRIMARY selection, which Dolphin sets to the selected
+  files. Other windows give an error ("Select files in File Explorer … first").
 - **Clipboard:** the Win32 clipboard, `NSPasteboard`, and on Linux the compositor:
   `ext-data-control` / `wlr-data-control` on KDE Plasma, Hyprland and wlroots, the KnobDeck Shell
   extension (version 3) on GNOME, or the X selection.
@@ -189,7 +195,9 @@ Where the values come from:
 
 ### Placeholders
 
-With the `placeholders` feature, `ctx.expand(text)` fills in `{selection}`, `{clipboard}`,
+With the `placeholders` feature, `ctx.expand(text)` fills in `{selection}`, `{files}` (one path
+per line; each quoted and space-separated with `Escape::Shell` or as `{files:quoted}`), `{file}`
+(the first), `{clipboard}`,
 `{app}`, `{title}`, `{date}`, `{time}`, `{date:%A %d %B}` (any `strftime` format) and
 `{input:Prompt}`, which asks with the OS's own input box (each prompt once; Cancel stops the
 handler quietly). `{{` and
