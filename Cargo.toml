@@ -1,6 +1,6 @@
 [package]
 name = "knobdeck-sdk"
-version = "0.11.0"
+version = "0.12.0"
 edition = "2021"
 description = "Declarative Rust SDK for authoring KnobDeck plugins"
 license = "MIT"
@@ -11,7 +11,7 @@ members = [".", "knobdeck-os"]
 
 [dependencies]
 # `os-*` features: OS context read in the plugin's own process (see src/os.rs).
-knobdeck-os = { path = "knobdeck-os", version = "0.3", default-features = false, optional = true }
+knobdeck-os = { path = "knobdeck-os", version = "0.4", default-features = false, optional = true }
 serde_json = { version = "1", features = ["preserve_order"] }
 sha1 = "0.10"
 # `oauth` feature: browser / device-code sign-in and token refresh for web-service plugins.
@@ -43,8 +43,11 @@ os-focus = ["os-window", "knobdeck-os/focus"]
 os-clipboard = ["dep:knobdeck-os", "knobdeck-os/clipboard"]
 # `os-selection`: the target app's selected text (`os::selection`, `ctx.selection()`).
 os-selection = ["os-focus", "os-clipboard", "knobdeck-os/selection"]
-# `placeholders`: `ctx.expand("…{selection}…")` ({selection}, {clipboard}, {app}, {title}, {date}, {time}).
-placeholders = ["os-selection", "os-clipboard", "knobdeck-os/placeholders"]
+# `os-files`: the files selected in File Explorer / Finder / Dolphin and the folder shown (`os::files`,
+# `ctx.files()` / `ctx.folder()`). macOS asks for the Automation permission (Finder) on first use.
+os-files = ["os-window", "knobdeck-os/files"]
+# `placeholders`: `ctx.expand("…{selection}…")` ({selection}, {files}, {file}, {clipboard}, {app}, {title}, {date}, {time}).
+placeholders = ["os-selection", "os-clipboard", "os-files", "knobdeck-os/placeholders"]
 
 [[bin]]
 name = "knobdeck-plugin"

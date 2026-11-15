@@ -1,5 +1,5 @@
 //! OS context handed to action handlers: the target window, the focused element, the selected
-//! text, the clipboard. Read in the plugin's own process from [`crate::os`].
+//! text, the selected files, the clipboard. Read in the plugin's own process from [`crate::os`].
 //!
 //! Every reader on [`Ctx`](crate::Ctx) is lazy: the first call reads the OS, later calls in the
 //! same press reuse the value. [`Action::needs`](crate::Action::needs) declares what an action
@@ -9,9 +9,9 @@
 //! in [`Ctx::context_error`](crate::Ctx::context_error).
 //!
 //! Each kind exists only with its SDK feature (`os-window`, `os-focus`, `os-selection`,
-//! `os-clipboard`), so naming one that isn't enabled doesn't compile.
+//! `os-files`, `os-clipboard`), so naming one that isn't enabled doesn't compile.
 
-#![cfg_attr(not(any(feature = "os-window", feature = "os-focus", feature = "os-selection", feature = "os-clipboard")), allow(dead_code, unused_imports, unreachable_code, unused_variables))]
+#![cfg_attr(not(any(feature = "os-window", feature = "os-focus", feature = "os-selection", feature = "os-files", feature = "os-clipboard")), allow(dead_code, unused_imports, unreachable_code, unused_variables))]
 
 use std::collections::HashMap;
 use std::sync::{mpsc, Arc, Mutex, OnceLock};
@@ -33,6 +33,9 @@ pub enum Need {
     /// The selected text: [`Ctx::selection`](crate::Ctx::selection).
     #[cfg(feature = "os-selection")]
     Selection,
+    /// The files selected in the target file manager: [`Ctx::files`](crate::Ctx::files).
+    #[cfg(feature = "os-files")]
+    Files,
     /// The clipboard's text and files: [`Ctx::clipboard_text`](crate::Ctx::clipboard_text),
     /// [`Ctx::clipboard_files`](crate::Ctx::clipboard_files).
     #[cfg(feature = "os-clipboard")]
@@ -49,6 +52,8 @@ impl Need {
             Need::Focus => "focus",
             #[cfg(feature = "os-selection")]
             Need::Selection => "selection",
+            #[cfg(feature = "os-files")]
+            Need::Files => "files",
             #[cfg(feature = "os-clipboard")]
             Need::Clipboard => "clipboard",
         }
@@ -70,6 +75,9 @@ pub(crate) fn uses() -> Vec<&'static str> {
     }
     if cfg!(feature = "os-selection") {
         u.push("selection");
+    }
+    if cfg!(feature = "os-files") {
+        u.push("files");
     }
     if cfg!(feature = "os-clipboard") {
         u.push("clipboard");
@@ -94,6 +102,10 @@ pub(crate) struct Context {
     pub focus: OnceLock<Option<crate::os::focus::Element>>,
     #[cfg(feature = "os-selection")]
     pub selection: OnceLock<Option<String>>,
+    #[cfg(feature = "os-files")]
+    pub files: OnceLock<Option<Vec<std::path::PathBuf>>>,
+    #[cfg(feature = "os-files")]
+    pub folder: OnceLock<Option<std::path::PathBuf>>,
     #[cfg(feature = "os-clipboard")]
     pub clipboard: OnceLock<Option<Clip>>,
     pub errors: Mutex<HashMap<&'static str, String>>,
@@ -131,6 +143,16 @@ impl Context {
                     None
                 }));
             }
+            #[cfg(feature = "os-files")]
+            Need::Files => {
+                self.files.get_or_init(|| match crate::os::files::selected() {
+                    Ok(f) => Some(f),
+                    Err(e) => {
+                        self.fail("files", e);
+                        None
+                    }
+                });
+            }
             #[cfg(feature = "os-clipboard")]
             Need::Clipboard => {
                 self.clipboard.get_or_init(|| {
@@ -158,6 +180,8 @@ impl Context {
             Need::Focus => self.focus.set(None).is_ok(),
             #[cfg(feature = "os-selection")]
             Need::Selection => self.selection.set(None).is_ok(),
+            #[cfg(feature = "os-files")]
+            Need::Files => self.files.set(None).is_ok(),
             #[cfg(feature = "os-clipboard")]
             Need::Clipboard => self.clipboard.set(None).is_ok(),
         };
@@ -212,6 +236,22 @@ impl Context {
     pub fn selection(&self) -> Option<&str> {
         self.read(Need::Selection);
         self.selection.get().and_then(|s| s.as_deref())
+    }
+    #[cfg(feature = "os-files")]
+    pub fn files(&self) -> Option<&[std::path::PathBuf]> {
+        self.read(Need::Files);
+        self.files.get().and_then(|f| f.as_deref())
+    }
+    #[cfg(feature = "os-files")]
+    pub fn folder(&self) -> Option<&std::path::Path> {
+        self.folder
+            .get_or_init(|| {
+                crate::os::files::current_folder().unwrap_or_else(|e| {
+                    self.fail("folder", e);
+                    None
+                })
+            })
+            .as_deref()
     }
     #[cfg(feature = "os-clipboard")]
     pub fn clip(&self) -> Option<&Clip> {

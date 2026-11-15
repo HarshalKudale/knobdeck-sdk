@@ -10,7 +10,8 @@
 //! - [`focus`]: the focused UI element of the target app (role, editable, password).
 //! - [`selection`]: the selected text of the target app.
 //! - [`clipboard`]: the clipboard's kinds, text, files and image (read only).
-//! - [`placeholders`]: `{selection}`, `{clipboard}`, `{date}`… in action text: parse, escape, expand.
+//! - [`files`]: the files selected in File Explorer / Finder / Dolphin, and the folder shown.
+//! - [`placeholders`]: `{selection}`, `{files}`, `{clipboard}`, `{date}`… in action text: parse, escape, expand.
 //!
 //! Nothing here polls: [`window::watch`] runs on the OS's own events and stops when its handle
 //! is dropped.
@@ -46,6 +47,9 @@ pub mod selection;
 #[cfg(feature = "clipboard")]
 pub mod clipboard;
 
+#[cfg(feature = "files")]
+pub mod files;
+
 #[cfg(feature = "placeholders")]
 pub mod placeholders;
 
@@ -57,6 +61,9 @@ mod win_focus;
 
 #[cfg(all(windows, feature = "clipboard"))]
 mod win_clipboard;
+
+#[cfg(all(windows, feature = "files"))]
+mod win_files;
 
 /// Longest text returned by the selection and clipboard readers (1 MiB).
 #[allow(dead_code)]

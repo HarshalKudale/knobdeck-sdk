@@ -1,5 +1,5 @@
-//! Placeholders in action text: `{selection}`, `{clipboard}`, `{app}`, `{title}`, `{date}`,
-//! `{time}`, `{date:%Y-%m-%d}`. One parser for KnobDeck's built-in actions and for plugins
+//! Placeholders in action text: `{selection}`, `{files}`, `{file}`, `{clipboard}`, `{app}`,
+//! `{title}`, `{date}`, `{time}`, `{date:%Y-%m-%d}`. One parser for KnobDeck's built-in actions and for plugins
 //! (`ctx.expand` in the SDK).
 //!
 //! - Single braces, as in Raycast-style snippets. `{name}` is special only for the names above,
@@ -9,6 +9,10 @@
 //!   cancelling it fails the expansion with [`crate::input_box::CANCELLED`], so the action stops.
 //! - Values are escaped for where the text goes ([`Escape`]): percent-encoded in a URL, quoted
 //!   for a shell. `{selection:raw}` (or `:url`, `:shell`) overrides that per placeholder.
+//! - `{files}` is the selected files: one path per line as raw text, each path quoted and
+//!   space-separated for a shell (`{files:quoted}` asks for that anywhere). `{file}` is the first.
+//!   The caller returns the list for [`Name::Files`] as paths joined with `\n`; `{file}` uses the
+//!   same value, so the callback is never asked for [`Name::File`].
 //! - The caller supplies the values, reading only the names the text uses ([`used`]).
 
 use crate::Result;
@@ -19,6 +23,10 @@ use std::fmt::Write;
 pub enum Name {
     /// The target app's selected text.
     Selection,
+    /// The files selected in the target file manager: paths joined with `\n`.
+    Files,
+    /// The first selected file (read through [`Name::Files`]).
+    File,
     /// The clipboard's text.
     Clipboard,
     /// The target window's app name.
@@ -37,6 +45,8 @@ impl Name {
     fn parse(s: &str) -> Option<Name> {
         Some(match s {
             "selection" => Name::Selection,
+            "files" => Name::Files,
+            "file" => Name::File,
             "clipboard" => Name::Clipboard,
             "app" => Name::App,
             "title" => Name::Title,
@@ -50,6 +60,8 @@ impl Name {
     pub fn as_str(self) -> &'static str {
         match self {
             Name::Selection => "selection",
+            Name::Files => "files",
+            Name::File => "file",
             Name::Clipboard => "clipboard",
             Name::App => "app",
             Name::Title => "title",
@@ -60,7 +72,7 @@ impl Name {
     }
 
     /// Every name, in menu order.
-    pub const ALL: [Name; 7] = [Name::Selection, Name::Clipboard, Name::App, Name::Title, Name::Date, Name::Time, Name::Input];
+    pub const ALL: [Name; 9] = [Name::Selection, Name::Files, Name::File, Name::Clipboard, Name::App, Name::Title, Name::Date, Name::Time, Name::Input];
 }
 
 /// How values are written into the text.
@@ -123,11 +135,13 @@ fn segments(s: &str) -> Vec<Seg<'_>> {
     out
 }
 
-/// The placeholder names `text` uses, each once, in order.
+/// The placeholder names `text` uses, each once, in order: the values to read. `{file}` is
+/// reported as [`Name::Files`].
 pub fn used(text: &str) -> Vec<Name> {
     let mut names = vec![];
     for seg in segments(text) {
         if let Seg::Var { name, .. } = seg {
+            let name = if name == Name::File { Name::Files } else { name };
             if !names.contains(&name) {
                 names.push(name);
             }
@@ -145,14 +159,16 @@ pub fn has_any(text: &str) -> bool {
 /// `Time` and `Input` are handled here, the callback isn't asked for them). A value error, or a
 /// cancelled input box, stops the expansion.
 pub fn expand(text: &str, escape: Escape, value: impl FnMut(Name) -> Result<String>) -> Result<String> {
-    expand_with(text, escape, value, crate::input_box::ask, |_, v| v)
+    expand_with(text, escape, value, crate::input_box::ask, |_, v| v, false)
 }
 
 /// [`expand`], passing every final value (dates and input answers too) through `map` before it
 /// is escaped and inserted: for targets with no safe inline quoting, `map` can stash the value
 /// elsewhere (an environment variable) and return a reference to it, with `Escape::Raw`.
+/// `{files}` is mapped one path at a time and the results joined with spaces, so each file is
+/// its own argument.
 pub fn expand_mapped(text: &str, escape: Escape, value: impl FnMut(Name) -> Result<String>, map: impl FnMut(Name, String) -> String) -> Result<String> {
-    expand_with(text, escape, value, crate::input_box::ask, map)
+    expand_with(text, escape, value, crate::input_box::ask, map, true)
 }
 
 fn expand_with(
@@ -161,6 +177,7 @@ fn expand_with(
     mut value: impl FnMut(Name) -> Result<String>,
     mut ask: impl FnMut(&str) -> Result<String>,
     mut map: impl FnMut(Name, String) -> String,
+    mapped: bool,
 ) -> Result<String> {
     let mut cache: Vec<(Name, String)> = vec![];
     let mut answers: Vec<(String, String)> = vec![];
@@ -183,17 +200,37 @@ fn expand_with(
                             }
                         }
                     }
-                    _ => match cache.iter().find(|(n, _)| *n == name) {
-                        Some((_, v)) => v.clone(),
-                        None => {
-                            let v = value(name)?;
-                            cache.push((name, v.clone()));
+                    _ => {
+                        let read = if name == Name::File { Name::Files } else { name };
+                        let v = match cache.iter().find(|(n, _)| *n == read) {
+                            Some((_, v)) => v.clone(),
+                            None => {
+                                let v = value(read)?;
+                                cache.push((read, v.clone()));
+                                v
+                            }
+                        };
+                        if name == Name::File {
+                            v.lines().next().unwrap_or_default().to_string()
+                        } else {
                             v
                         }
-                    },
+                    }
                 };
-                let v = map(name, v);
                 let esc = mode.unwrap_or(if escape == Escape::Url && at_start { Escape::Raw } else { escape });
+                if name == Name::Files && (mapped || esc == Escape::Shell) {
+                    // Each path its own argument.
+                    let paths = v.lines().filter(|p| !p.is_empty());
+                    for (i, p) in paths.enumerate() {
+                        if i > 0 {
+                            out.push(' ');
+                        }
+                        let p = if mapped { map(name, p.to_string()) } else { p.to_string() };
+                        write_escaped(&mut out, &p, if mapped { mode.unwrap_or(escape) } else { esc });
+                    }
+                    continue;
+                }
+                let v = map(name, v);
                 write_escaped(&mut out, &v, esc);
             }
         }
@@ -206,7 +243,7 @@ fn split_arg(name: Name, arg: Option<&str>) -> (Option<&str>, Option<Escape>) {
     let mode = |a: &str| match a.trim() {
         "raw" => Some(Escape::Raw),
         "url" => Some(Escape::Url),
-        "shell" => Some(Escape::Shell),
+        "shell" | "quoted" => Some(Escape::Shell),
         _ => None,
     };
     match (name, arg) {
@@ -261,6 +298,7 @@ mod tests {
             Name::Clipboard => "https://x.y/?a=1".into(),
             Name::App => "Code".into(),
             Name::Title => "main.rs".into(),
+            Name::Files => "/a/it's.png\n/b/c d.jpg".into(),
             _ => unreachable!(),
         })
     }
@@ -280,6 +318,21 @@ mod tests {
         assert_eq!(expand("{clipboard}", Escape::Url, vals).unwrap(), "https://x.y/?a=1");
         assert_eq!(expand("echo {selection}", Escape::Shell, vals).unwrap(), r"echo 'it'\''s a & b'");
         assert_eq!(expand("q={selection:raw}", Escape::Url, vals).unwrap(), "q=it's a & b");
+    }
+
+    #[test]
+    fn files_per_line_quoted_or_mapped() {
+        assert_eq!(expand("{files}", Escape::Raw, vals).unwrap(), "/a/it's.png\n/b/c d.jpg");
+        assert_eq!(expand("open {files}", Escape::Shell, vals).unwrap(), r"open '/a/it'\''s.png' '/b/c d.jpg'");
+        assert_eq!(expand("{files:quoted}", Escape::Raw, vals).unwrap(), r"'/a/it'\''s.png' '/b/c d.jpg'");
+        assert_eq!(expand("cat {file}", Escape::Shell, vals).unwrap(), r"cat '/a/it'\''s.png'");
+        let mut n = 0;
+        let out = expand_mapped("x {files} {file}", Escape::Raw, vals, |name, _| {
+            n += 1;
+            format!("%{}{n}%", name.as_str())
+        });
+        assert_eq!(out.unwrap(), "x %files1% %files2% %file3%");
+        assert_eq!(used("{file} {files}"), vec![Name::Files]);
     }
 
     #[test]
@@ -305,10 +358,10 @@ mod tests {
         let out = expand_with("git commit -m {input:Message: one line} {input:Message: one line} {input}", Escape::Shell, vals, |p| {
             asked.push(p.to_string());
             Ok("it's".into())
-        }, |_, v| v);
+        }, |_, v| v, false);
         assert_eq!(out.unwrap(), r"git commit -m 'it'\''s' 'it'\''s' 'it'\''s'");
         assert_eq!(asked, vec!["Message: one line", "Input"]);
-        let cancelled = expand_with("{input:x}", Escape::Raw, vals, |_| Err(crate::Error::msg(crate::input_box::CANCELLED)), |_, v| v);
+        let cancelled = expand_with("{input:x}", Escape::Raw, vals, |_| Err(crate::Error::msg(crate::input_box::CANCELLED)), |_, v| v, false);
         assert!(crate::input_box::is_cancelled(&cancelled.unwrap_err()));
     }
 
@@ -318,7 +371,7 @@ mod tests {
         let out = expand_with("{app} {date:%Y} {input:Q}", Escape::Raw, vals, |_| Ok("a & b".into()), |n, v| {
             seen.push((n, v));
             format!("%{}%", n.as_str())
-        });
+        }, true);
         assert_eq!(out.unwrap(), "%app% %date% %input%");
         assert_eq!(seen[2], (Name::Input, "a & b".to_string()));
     }

@@ -1,8 +1,8 @@
 [package]
 name = "knobdeck-os"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
-description = "Windows, focus, selection, clipboard and installed apps on Windows, macOS and Linux: one implementation for the KnobDeck host and its plugins"
+description = "Windows, focus, selection, selected files, clipboard and installed apps on Windows, macOS and Linux: one implementation for the KnobDeck host and its plugins"
 license = "MIT"
 repository = "https://github.com/Knobdeck/knobdeck-sdk"
 
@@ -16,9 +16,12 @@ apps = ["dep:plist"]
 focus = ["window", "dep:windows"]
 # The target app's selected text (Linux falls back to the PRIMARY selection).
 selection = ["focus", "clipboard"]
-# The clipboard's kinds, text, files and image, read only.
+# The files selected in File Explorer / Finder / a Linux file manager, and the folder it shows
+# (Linux reads them from the PRIMARY selection, hence `clipboard`).
+files = ["window", "clipboard", "dep:windows"]
 # Placeholders in action text ({selection}, {date:%Y-%m-%d}…): the parser and escaping.
 placeholders = ["dep:chrono"]
+# The clipboard's kinds, text, files and image, read only.
 clipboard = ["dep:wayland-client", "dep:wayland-protocols", "dep:wayland-protocols-wlr"]
 
 [dependencies]
@@ -46,6 +49,8 @@ windows = { version = "0.61", optional = true, features = [
     "Win32_System_Ole",
     "Win32_System_Variant",
     "Win32_UI_Accessibility",
+    "Win32_UI_Shell",
+    "Win32_UI_Shell_Common",
 ] }
 
 [target.'cfg(target_os = "macos")'.dependencies]

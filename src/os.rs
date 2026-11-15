@@ -10,6 +10,8 @@
 //! - `os-selection`: [`selection`]: the target app's selected text (`text()`, and the opt-in
 //!   `text_via_copy()` for apps that don't expose it).
 //! - `os-clipboard`: [`clipboard`]: the clipboard's kinds, text, files and image, read only.
+//! - `os-files`: [`files`]: the files selected in File Explorer / Finder / Dolphin
+//!   (`selected()`), and the folder that window shows (`current_folder()`).
 //!
 //! In a handler, prefer the readers on [`Ctx`](crate::Ctx) (`ctx.window()`, `ctx.selection()`…)
 //! with [`Action::needs`](crate::Action::needs): they read once per press, within a time budget.
@@ -29,6 +31,9 @@ pub use knobdeck_os::selection;
 
 #[cfg(feature = "os-clipboard")]
 pub use knobdeck_os::clipboard;
+
+#[cfg(feature = "os-files")]
+pub use knobdeck_os::files;
 
 #[cfg(feature = "placeholders")]
 pub use knobdeck_os::{input_box, placeholders};
