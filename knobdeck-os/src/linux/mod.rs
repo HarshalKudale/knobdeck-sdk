@@ -12,6 +12,10 @@ pub mod desktop;
 pub mod gnome;
 pub mod kwin;
 
+#[cfg(feature = "focus")]
+pub(crate) mod atspi;
+#[cfg(feature = "clipboard")]
+pub(crate) mod clipboard;
 #[cfg(feature = "window")]
 mod hypr;
 #[cfg(feature = "window")]

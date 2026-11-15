@@ -68,6 +68,11 @@ pub fn generate_manifest(p: &Plugin, stage: Stage) -> Value {
     if !m.platforms.is_empty() {
         manifest.insert("platforms".into(), json!(m.platforms));
     }
+    // The OS context this binary can read (its SDK `os-*` features), for the plugins page.
+    let uses = crate::context::uses();
+    if !uses.is_empty() {
+        manifest.insert("uses".into(), json!(uses));
+    }
 
     if let Some(exe) = setup_exe {
         let mut setup = Map::new();
@@ -161,6 +166,9 @@ pub fn generate_actions(p: &Plugin) -> Result<Value, String> {
         let platforms = if a.platforms.is_empty() { &p.meta.platforms } else { &a.platforms };
         if !platforms.is_empty() {
             e.insert("platforms".into(), json!(platforms));
+        }
+        if !a.needs.is_empty() {
+            e.insert("needs".into(), a.needs.iter().map(|n| n.as_str()).collect());
         }
         match a.kind {
             Kind::Toggle => {

@@ -45,6 +45,23 @@ pub fn call(cmd: &str, args: &Value) -> Result<Value> {
     }
 }
 
+/// The clipboard's (`primary` false) or PRIMARY selection's mime types, and the data of the first
+/// of `prefs` it offers.
+#[cfg(feature = "clipboard")]
+pub(crate) fn clipboard(primary: bool, prefs: &[&str]) -> Result<(Vec<String>, Option<(String, Vec<u8>)>)> {
+    let conn = bus::session()?;
+    let which = if primary { "primary" } else { "clipboard" };
+    let (types, mime, data): (Vec<String>, String, Vec<u8>) = match bus::call(&conn, BUS_NAME, PATH, BUS_NAME, "Clipboard", &(which, prefs)) {
+        Ok(r) => r,
+        Err(_) if !bus::session_has_owner(BUS_NAME) => return Err(not_running()),
+        Err(_) if running_version().is_some_and(|v| v < 3) => {
+            return Err(Error::msg("Reading the clipboard on GNOME needs the updated KnobDeck GNOME extension: log out and back in once"))
+        }
+        Err(e) => return Err(e),
+    };
+    Ok((types, (!mime.is_empty()).then_some((mime, data))))
+}
+
 fn not_running() -> Error {
     if extension_dir().join("metadata.json").is_file() {
         Error::msg("The KnobDeck GNOME extension isn't running yet: log out and back in once (or turn it on in the Extensions app)")

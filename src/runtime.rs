@@ -791,6 +791,7 @@ fn handle_invoke(core: &Arc<Core>, msg: Value) {
         v => Some(value_str(v)),
     };
     let is_adjust = def.kind == Kind::Slider && trigger == "adjust";
+    let context = crate::context::prefetch(&def.needs, def.needs_budget.unwrap_or(crate::context::DEFAULT_BUDGET));
     let ctx = Ctx {
         instance_id: instance_id.clone(),
         action_id: action_id.clone(),
@@ -802,6 +803,7 @@ fn handle_invoke(core: &Arc<Core>, msg: Value) {
         delta: if is_adjust { inputs.get("delta").and_then(num) } else { None },
         inputs,
         rt: rt.clone(),
+        context,
     };
 
     if child_id.is_some() {

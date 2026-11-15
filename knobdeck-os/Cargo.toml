@@ -1,8 +1,8 @@
 [package]
 name = "knobdeck-os"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
-description = "Windows, focus and installed apps on Windows, macOS and Linux: one implementation for the KnobDeck host and its plugins"
+description = "Windows, focus, selection, clipboard and installed apps on Windows, macOS and Linux: one implementation for the KnobDeck host and its plugins"
 license = "MIT"
 repository = "https://github.com/HarshalKudale/knobdeck-sdk"
 
@@ -12,6 +12,12 @@ default = ["window", "apps"]
 window = []
 # The installed-app list (Start menu apps, .app bundles, XDG desktop entries).
 apps = ["dep:plist"]
+# The focused UI element of the target app (role, editable, password): UI Automation, AX, AT-SPI.
+focus = ["window", "dep:windows"]
+# The target app's selected text (Linux falls back to the PRIMARY selection).
+selection = ["focus", "clipboard"]
+# The clipboard's kinds, text, files and image, read only.
+clipboard = ["dep:wayland-client", "dep:wayland-protocols", "dep:wayland-protocols-wlr"]
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
@@ -25,6 +31,18 @@ windows-sys = { version = "0.59", features = [
     "Win32_System_Threading",
     "Win32_UI_Accessibility",
     "Win32_UI_WindowsAndMessaging",
+    "Win32_System_DataExchange",
+    "Win32_System_Memory",
+    "Win32_System_Ole",
+    "Win32_UI_Shell",
+] }
+# UI Automation (COM) for `focus` / `selection`.
+windows = { version = "0.61", optional = true, features = [
+    "Win32_Foundation",
+    "Win32_System_Com",
+    "Win32_System_Ole",
+    "Win32_System_Variant",
+    "Win32_UI_Accessibility",
 ] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
@@ -32,11 +50,15 @@ libc = "0.2"
 block2 = "0.6"
 core-foundation = "0.10"
 objc2 = "0.6"
-objc2-foundation = { version = "0.3", features = ["NSString", "NSArray", "NSDictionary", "NSNotification", "NSOperation", "NSURL", "block2"] }
-objc2-app-kit = { version = "0.3", features = ["NSWorkspace", "NSRunningApplication"] }
+objc2-foundation = { version = "0.3", features = ["NSString", "NSArray", "NSDictionary", "NSNotification", "NSOperation", "NSURL", "NSData", "NSEnumerator", "block2"] }
+objc2-app-kit = { version = "0.3", features = ["NSWorkspace", "NSRunningApplication", "NSPasteboard", "NSPasteboardItem"] }
 plist = { version = "1", optional = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # D-Bus for the KWin script and the GNOME Shell extension (pure Rust, no libdbus).
 zbus = { version = "5", default-features = false, features = ["blocking-api", "async-io"] }
 x11rb = "0.13"
+# `clipboard` on Wayland: the ext / wlr data-control protocols.
+wayland-client = { version = "0.31", optional = true }
+wayland-protocols = { version = "0.32", optional = true, features = ["client", "staging"] }
+wayland-protocols-wlr = { version = "0.3", optional = true, features = ["client"] }

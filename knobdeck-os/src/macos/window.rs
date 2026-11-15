@@ -74,53 +74,53 @@ unsafe impl Sync for Ax {}
 
 impl Ax {
     /// Take ownership of a +1 reference; `None` for NULL.
-    fn owned(r: AXUIElementRef) -> Option<Ax> {
+    pub(crate) fn owned(r: AXUIElementRef) -> Option<Ax> {
         (!r.is_null()).then(|| Ax(r))
     }
-    fn app(pid: i32) -> Option<Ax> {
+    pub(crate) fn app(pid: i32) -> Option<Ax> {
         Ax::owned(unsafe { AXUIElementCreateApplication(pid) })
     }
     pub fn as_ptr(&self) -> AXUIElementRef {
         self.0
     }
-    fn copy(&self, name: &str) -> Option<CFType> {
+    pub(crate) fn copy(&self, name: &str) -> Option<CFType> {
         let attr = CFString::new(name);
         let mut value: CFTypeRef = std::ptr::null();
         let err = unsafe { AXUIElementCopyAttributeValue(self.0, attr.as_concrete_TypeRef(), &mut value) };
         (err == 0 && !value.is_null()).then(|| unsafe { CFType::wrap_under_create_rule(value) })
     }
-    fn elem(&self, name: &str) -> Option<Ax> {
+    pub(crate) fn elem(&self, name: &str) -> Option<Ax> {
         let v = self.copy(name)?;
         (v.type_of() as usize == unsafe { AXUIElementGetTypeID() }).then(|| {
             unsafe { CFRetain(v.as_CFTypeRef()) };
             Ax(v.as_CFTypeRef())
         })
     }
-    fn string(&self, name: &str) -> Option<String> {
+    pub(crate) fn string(&self, name: &str) -> Option<String> {
         self.copy(name)?.downcast::<CFString>().map(|s| s.to_string()).filter(|s| !s.is_empty())
     }
-    fn bool(&self, name: &str) -> Option<bool> {
+    pub(crate) fn bool(&self, name: &str) -> Option<bool> {
         self.copy(name)?.downcast::<CFBoolean>().map(bool::from)
     }
-    fn set_bool(&self, name: &str, on: bool) -> i32 {
+    pub(crate) fn set_bool(&self, name: &str, on: bool) -> i32 {
         let attr = CFString::new(name);
         let v = if on { CFBoolean::true_value() } else { CFBoolean::false_value() };
         unsafe { AXUIElementSetAttributeValue(self.0, attr.as_concrete_TypeRef(), v.as_CFTypeRef()) }
     }
-    fn perform(&self, action: &str) -> i32 {
+    pub(crate) fn perform(&self, action: &str) -> i32 {
         let a = CFString::new(action);
         unsafe { AXUIElementPerformAction(self.0, a.as_concrete_TypeRef()) }
     }
-    fn value<T: Default>(&self, name: &str, kind: u32) -> Option<T> {
+    pub(crate) fn value<T: Default>(&self, name: &str, kind: u32) -> Option<T> {
         let v = self.copy(name)?;
         let mut out = T::default();
         unsafe { AXValueGetValue(v.as_CFTypeRef(), kind, &mut out as *mut T as *mut c_void) }.then_some(out)
     }
-    fn pid(&self) -> Option<i32> {
+    pub(crate) fn pid(&self) -> Option<i32> {
         let mut pid = 0;
         (unsafe { AXUIElementGetPid(self.0, &mut pid) } == 0).then_some(pid)
     }
-    fn children(&self, name: &str) -> Vec<Ax> {
+    pub(crate) fn children(&self, name: &str) -> Vec<Ax> {
         let Some(v) = self.copy(name) else { return vec![] };
         let Some(arr) = v.downcast::<CFArray>() else { return vec![] };
         arr.get_all_values()
@@ -166,11 +166,11 @@ pub struct RawId {
     pub window: Option<Ax>,
 }
 
-fn trusted() -> bool {
+pub(crate) fn trusted() -> bool {
     unsafe { AXIsProcessTrusted() }
 }
 
-fn needs_accessibility() -> Error {
+pub(crate) fn needs_accessibility() -> Error {
     Error::msg("This needs the Accessibility permission: System Settings → Privacy & Security → Accessibility → turn on KnobDeck")
 }
 

@@ -63,6 +63,7 @@ pub struct Ctx {
     /// Slider relative nudge, when driven by a +/- stepper.
     pub delta: Option<f64>,
     pub(crate) rt: Runtime,
+    pub(crate) context: std::sync::Arc<crate::context::Context>,
 }
 
 input_readers!(Ctx);
@@ -133,6 +134,38 @@ impl Ctx {
     #[cfg(feature = "os-window")]
     pub fn focus_app(&self, app: &str) -> Result<bool> {
         Ok(crate::os::window::focus_app(app, None)?)
+    }
+    /// The target window: the frontmost one that isn't KnobDeck's. Read once per press
+    /// (prefetched with `.needs(&[Need::Window])`).
+    #[cfg(feature = "os-window")]
+    pub fn window(&self) -> Option<&crate::os::window::Window> {
+        self.context.window()
+    }
+    /// The target app's focused element (role, editable, password).
+    #[cfg(feature = "os-focus")]
+    pub fn focus(&self) -> Option<&crate::os::focus::Element> {
+        self.context.focus()
+    }
+    /// The target app's selected text; `None` when nothing is selected, the focus is a password
+    /// field, or the app doesn't expose it (see [`Ctx::context_error`]).
+    #[cfg(feature = "os-selection")]
+    pub fn selection(&self) -> Option<&str> {
+        self.context.selection()
+    }
+    /// The clipboard's text.
+    #[cfg(feature = "os-clipboard")]
+    pub fn clipboard_text(&self) -> Option<&str> {
+        self.context.clip().and_then(|c| c.text.as_deref())
+    }
+    /// The files on the clipboard (copied in a file manager).
+    #[cfg(feature = "os-clipboard")]
+    pub fn clipboard_files(&self) -> &[std::path::PathBuf] {
+        self.context.clip().map_or(&[], |c| c.files.as_slice())
+    }
+    /// Why a context reader returned `None` ("This app doesn't expose its selected text",
+    /// "Reading selection took longer than 300 ms"), if it failed.
+    pub fn context_error(&self, need: crate::Need) -> Option<String> {
+        self.context.error(need.as_str())
     }
     /// Ask KnobDeck to press a key combination. Last resort: see the keystroke rule in the docs.
     pub fn send_keys(&self, keys: &str) -> Result {

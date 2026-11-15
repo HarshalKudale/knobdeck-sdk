@@ -91,6 +91,8 @@ pub struct Action {
     pub(crate) on_open: Option<OpenFn>,
     pub(crate) live: Option<(Duration, LiveFn)>,
     pub(crate) platforms: Vec<String>,
+    pub(crate) needs: Vec<crate::Need>,
+    pub(crate) needs_budget: Option<Duration>,
 }
 
 fn handler(f: impl Fn(&Ctx) -> Result + Send + Sync + 'static) -> Option<Handler> {
@@ -122,6 +124,8 @@ impl Action {
             on_open: None,
             live: None,
             platforms: vec![],
+            needs: vec![],
+            needs_budget: None,
         }
     }
 
@@ -234,6 +238,22 @@ impl Action {
         self
     }
     /// Wheel: a button child was pressed (`ctx.child_id`).
+    /// The OS context this action reads (the selected text, the clipboard…). The runtime reads
+    /// it in parallel before the handler runs, and the plugins page lists it. The handler reads
+    /// it with `ctx.selection()`, `ctx.window()`… (which also work without `needs`, reading on
+    /// first use).
+    pub fn needs(mut self, needs: &[crate::Need]) -> Self {
+        self.needs = needs.to_vec();
+        self
+    }
+
+    /// How long the runtime waits for [`Action::needs`] before running the handler anyway
+    /// (default 300 ms); a need that isn't ready reads as `None`.
+    pub fn needs_timeout(mut self, budget: Duration) -> Self {
+        self.needs_budget = Some(budget);
+        self
+    }
+
     pub fn on_child_press(mut self, f: impl Fn(&Ctx) -> Result + Send + Sync + 'static) -> Self {
         self.on_child_press = handler(f);
         self
