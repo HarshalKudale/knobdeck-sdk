@@ -85,6 +85,9 @@ pub enum Escape {
     Url,
     /// Single-quoted for a POSIX shell (sh, bash, zsh, fish): `'it'\''s'`.
     Shell,
+    /// An AppleScript string literal: `"say \"hi\""`. `{files}` becomes a list of them:
+    /// `{"/a", "/b"}`.
+    AppleScript,
 }
 
 #[derive(Debug, PartialEq)]
@@ -218,6 +221,17 @@ fn expand_with(
                     }
                 };
                 let esc = mode.unwrap_or(if escape == Escape::Url && at_start { Escape::Raw } else { escape });
+                if name == Name::Files && esc == Escape::AppleScript && !mapped {
+                    out.push('{');
+                    for (i, p) in v.lines().filter(|p| !p.is_empty()).enumerate() {
+                        if i > 0 {
+                            out.push_str(", ");
+                        }
+                        write_escaped(&mut out, p, esc);
+                    }
+                    out.push('}');
+                    continue;
+                }
                 if name == Name::Files && (mapped || esc == Escape::Shell) {
                     // Each path its own argument.
                     let paths = v.lines().filter(|p| !p.is_empty());
@@ -244,6 +258,7 @@ fn split_arg(name: Name, arg: Option<&str>) -> (Option<&str>, Option<Escape>) {
         "raw" => Some(Escape::Raw),
         "url" => Some(Escape::Url),
         "shell" | "quoted" => Some(Escape::Shell),
+        "applescript" => Some(Escape::AppleScript),
         _ => None,
     };
     match (name, arg) {
@@ -279,6 +294,17 @@ fn write_escaped(out: &mut String, v: &str, esc: Escape) {
                     let _ = write!(out, "%{b:02X}");
                 }
             }
+        }
+        Escape::AppleScript => {
+            out.push('"');
+            for c in v.chars() {
+                match c {
+                    '"' => out.push_str("\\\""),
+                    '\\' => out.push_str("\\\\"),
+                    c => out.push(c),
+                }
+            }
+            out.push('"');
         }
         Escape::Shell => {
             out.push('\'');
@@ -333,6 +359,14 @@ mod tests {
         });
         assert_eq!(out.unwrap(), "x %files1% %files2% %file3%");
         assert_eq!(used("{file} {files}"), vec![Name::Files]);
+    }
+
+    #[test]
+    fn applescript_literals_and_lists() {
+        assert_eq!(expand("display dialog {selection}", Escape::AppleScript, |_| Ok(r#"say "hi" \ bye"#.into())).unwrap(), r#"display dialog "say \"hi\" \\ bye""#);
+        assert_eq!(expand("set f to {files}", Escape::AppleScript, vals).unwrap(), r#"set f to {"/a/it's.png", "/b/c d.jpg"}"#);
+        assert_eq!(expand("{file}", Escape::AppleScript, vals).unwrap(), r#""/a/it's.png""#);
+        assert_eq!(expand("{selection:applescript}", Escape::Raw, |_| Ok("x".into())).unwrap(), r#""x""#);
     }
 
     #[test]

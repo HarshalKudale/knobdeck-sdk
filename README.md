@@ -209,6 +209,7 @@ input::textarea("text", "Text").accepts_placeholders()   // KnobDeck shows an "I
 let text = ctx.expand(&ctx.input_str("text"))?;          // values as they are
 let url = ctx.expand_as(&tpl, os::placeholders::Escape::Url)?;   // percent-encoded (a leading placeholder stays raw)
 let cmd = ctx.expand_as(&tpl, os::placeholders::Escape::Shell)?; // single-quoted for sh / bash / zsh / fish
+let src = ctx.expand_as(&tpl, os::placeholders::Escape::AppleScript)?; // "string" literals; {files} as a list
 ```
 
 `{selection:raw}` (or `:url`, `:shell`) overrides the escaping for one placeholder.

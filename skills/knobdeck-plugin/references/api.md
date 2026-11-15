@@ -59,7 +59,7 @@ Fields: `instance_id`, `action_id`, `trigger` (`press`, `adjust`, `hold_start`, 
 | `installed_apps()` | os-apps: cached `Vec<InstalledApp>` (`label`, `value`, `executable`, `working_dir`) |
 | `window()` `focus()` `selection()` `files()` `folder()` `clipboard_text()` `clipboard_files()` | OS context, read once per press (lazy; prefetched by `.needs`) |
 | `context_error(Need::Selection)` | why a context reader returned `None` |
-| `expand(text)` / `expand_as(text, Escape::Url \| Shell)` | feature `placeholders`: `{selection}` `{files}` (one per line; quoted and space-separated with `Escape::Shell` or `{files:quoted}`) `{file}` `{clipboard}` `{app}` `{title}` `{date[:fmt]}` `{time[:fmt]}` `{input:Prompt}` (OS input box; cancel stops quietly), `{{`/`}}`; pair with `input::textarea(..).accepts_placeholders()` |
+| `expand(text)` / `expand_as(text, Escape::Url \| Shell \| AppleScript)` | feature `placeholders`: `{selection}` `{files}` (one per line; quoted and space-separated with `Escape::Shell` or `{files:quoted}`) `{file}` `{clipboard}` `{app}` `{title}` `{date[:fmt]}` `{time[:fmt]}` `{input:Prompt}` (OS input box; cancel stops quietly), `{{`/`}}`; pair with `input::textarea(..).accepts_placeholders()` |
 
 `Action::needs(&[Need::Window | Focus | Selection | Files | Clipboard])`: read before the handler runs
 (parallel, 300 ms budget, `.needs_timeout(d)`), listed in `actions.json` `needs`. Each `Need` needs
