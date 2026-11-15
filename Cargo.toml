@@ -1,6 +1,6 @@
 [package]
 name = "knobdeck-sdk"
-version = "0.9.0"
+version = "0.10.0"
 edition = "2021"
 description = "Declarative Rust SDK for authoring KnobDeck plugins"
 license = "MIT"
@@ -43,6 +43,8 @@ os-focus = ["os-window", "knobdeck-os/focus"]
 os-clipboard = ["dep:knobdeck-os", "knobdeck-os/clipboard"]
 # `os-selection`: the target app's selected text (`os::selection`, `ctx.selection()`).
 os-selection = ["os-focus", "os-clipboard", "knobdeck-os/selection"]
+# `placeholders`: `ctx.expand("…{selection}…")` ({selection}, {clipboard}, {app}, {title}, {date}, {time}).
+placeholders = ["os-selection", "os-clipboard", "knobdeck-os/placeholders"]
 
 [[bin]]
 name = "knobdeck-plugin"
