@@ -170,6 +170,10 @@ When a reader returns `None`, `ctx.context_error(Need::Selection)` says why. Don
 to read a selection. `os::selection::text_via_copy` is the opt-in fallback for apps that
 don't expose one.
 
+For user-written text (snippets, URLs, commands), enable `placeholders`, mark the input
+`.accepts_placeholders()` and run it through `ctx.expand(..)` / `ctx.expand_as(.., Escape::Url)`
+instead of inventing your own `{...}` syntax.
+
 ## Testing
 
 `knobdeck-plugin drive` with no argument is a smoke test: hello → ready → sync one instance of

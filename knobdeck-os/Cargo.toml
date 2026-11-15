@@ -17,11 +17,14 @@ focus = ["window", "dep:windows"]
 # The target app's selected text (Linux falls back to the PRIMARY selection).
 selection = ["focus", "clipboard"]
 # The clipboard's kinds, text, files and image, read only.
+# Placeholders in action text ({selection}, {date:%Y-%m-%d}…): the parser and escaping.
+placeholders = ["dep:chrono"]
 clipboard = ["dep:wayland-client", "dep:wayland-protocols", "dep:wayland-protocols-wlr"]
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+chrono = { version = "0.4", optional = true, default-features = false, features = ["clock", "std"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = [

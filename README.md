@@ -187,6 +187,22 @@ Where the values come from:
   which is a keystroke, so it is opt-in. Either way it then reads the clipboard and puts the
   previous clipboard back. It isn't supported on Linux yet.
 
+### Placeholders
+
+With the `placeholders` feature, `ctx.expand(text)` fills in `{selection}`, `{clipboard}`,
+`{app}`, `{title}`, `{date}`, `{time}` and `{date:%A %d %B}` (any `strftime` format). `{{` and
+`}}` give literal braces; other text in braces is left alone. Only the values the text uses are
+read. KnobDeck's built-in Open URL, Run Command and Launch actions use the same parser.
+
+```rust
+input::textarea("text", "Text").accepts_placeholders()   // KnobDeck shows an "Insert placeholder" menu
+let text = ctx.expand(&ctx.input_str("text"))?;          // values as they are
+let url = ctx.expand_as(&tpl, os::placeholders::Escape::Url)?;   // percent-encoded (a leading placeholder stays raw)
+let cmd = ctx.expand_as(&tpl, os::placeholders::Escape::Shell)?; // single-quoted for sh / bash / zsh / fish
+```
+
+`{selection:raw}` (or `:url`, `:shell`) overrides the escaping for one placeholder.
+
 `target()` skips KnobDeck's windows (the host's pid comes in `hello`), so a slider that keeps the
 dial focused still acts on the app under it. `.volatile()` actions re-run `initial()` from an
 event-driven watcher (`window::watch`) while one is placed; nothing polls. `app_id` is the exe name

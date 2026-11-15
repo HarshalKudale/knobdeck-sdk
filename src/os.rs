@@ -30,6 +30,9 @@ pub use knobdeck_os::selection;
 #[cfg(feature = "os-clipboard")]
 pub use knobdeck_os::clipboard;
 
+#[cfg(feature = "placeholders")]
+pub use knobdeck_os::placeholders;
+
 #[cfg(target_os = "linux")]
 pub use knobdeck_os::linux;
 

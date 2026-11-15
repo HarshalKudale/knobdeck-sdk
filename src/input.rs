@@ -45,6 +45,9 @@ pub trait InputExt {
     fn placeholder(self, p: &str) -> Value;
     fn default_value(self, d: impl Into<Value>) -> Value;
     fn with(self, key: &str, v: impl Into<Value>) -> Value;
+    /// The field takes placeholders (`{selection}`, `{date}`…): KnobDeck shows an "Insert
+    /// placeholder" menu next to it. Expand the value with `ctx.expand(..)`.
+    fn accepts_placeholders(self) -> Value;
 }
 
 impl InputExt for Value {
@@ -57,5 +60,8 @@ impl InputExt for Value {
     fn with(mut self, key: &str, v: impl Into<Value>) -> Value {
         self[key] = v.into();
         self
+    }
+    fn accepts_placeholders(self) -> Value {
+        self.with("placeholders", true)
     }
 }
