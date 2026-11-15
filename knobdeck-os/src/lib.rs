@@ -49,6 +49,9 @@ pub mod clipboard;
 #[cfg(feature = "placeholders")]
 pub mod placeholders;
 
+#[cfg(feature = "placeholders")]
+pub mod input_box;
+
 #[cfg(all(windows, feature = "focus"))]
 mod win_focus;
 

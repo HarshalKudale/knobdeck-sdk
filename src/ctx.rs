@@ -163,8 +163,10 @@ impl Ctx {
         self.context.clip().map_or(&[], |c| c.files.as_slice())
     }
     /// Replace the placeholders in `text` (`{selection}`, `{clipboard}`, `{app}`, `{title}`,
-    /// `{date}`, `{date:%d %B}`, `{time}`, `{{` / `}}` for braces), reading only what it uses.
-    /// A value that can't be read is empty. Other text in braces is left alone.
+    /// `{date}`, `{date:%d %B}`, `{time}`, `{input:Prompt}`, `{{` / `}}` for braces), reading only
+    /// what it uses. A value that can't be read is empty. Other text in braces is left alone.
+    /// `{input:…}` shows the OS's input box; if the user cancels it, this returns an error that
+    /// stops the handler quietly (`?` it).
     #[cfg(feature = "placeholders")]
     pub fn expand(&self, text: &str) -> Result<String> {
         self.expand_as(text, crate::os::placeholders::Escape::Raw)
@@ -174,15 +176,23 @@ impl Ctx {
     pub fn expand_as(&self, text: &str, escape: crate::os::placeholders::Escape) -> Result<String> {
         use crate::os::placeholders::{expand, Name};
         let c = &self.context;
-        Ok(expand(text, escape, |name| {
+        expand(text, escape, |name| {
             Ok(match name {
                 Name::Selection => c.selection().unwrap_or_default().to_string(),
                 Name::Clipboard => c.clip().and_then(|c| c.text.clone()).unwrap_or_default(),
                 Name::App => c.window().map(|w| w.app_name.clone().unwrap_or_else(|| w.app_id.clone())).unwrap_or_default(),
                 Name::Title => c.window().and_then(|w| w.title.clone()).unwrap_or_default(),
-                Name::Date | Name::Time => String::new(),
+                Name::Date | Name::Time | Name::Input => String::new(), // filled in by the parser
             })
-        })?)
+        })
+        .map_err(|e| {
+            // A cancelled input box: stop without reporting an error.
+            if knobdeck_os::input_box::is_cancelled(&e) {
+                Error::Fail(e.message().into())
+            } else {
+                Error::from(e)
+            }
+        })
     }
     /// Why a context reader returned `None` ("This app doesn't expose its selected text",
     /// "Reading selection took longer than 300 ms"), if it failed.

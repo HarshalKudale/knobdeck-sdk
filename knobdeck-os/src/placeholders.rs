@@ -5,6 +5,8 @@
 //! - Single braces, as in Raycast-style snippets. `{name}` is special only for the names above,
 //!   so other text with braces (JSON, code) is left alone. `{{` and `}}` are literal braces.
 //! - `{date}` / `{time}` take an optional `strftime` format: `{date:%A %d %B}`, `{time:%H:%M}`.
+//! - `{input:Prompt}` asks with the OS's input box when the text is expanded (each prompt once);
+//!   cancelling it fails the expansion with [`crate::input_box::CANCELLED`], so the action stops.
 //! - Values are escaped for where the text goes ([`Escape`]): percent-encoded in a URL, quoted
 //!   for a shell. `{selection:raw}` (or `:url`, `:shell`) overrides that per placeholder.
 //! - The caller supplies the values, reading only the names the text uses ([`used`]).
@@ -27,6 +29,8 @@ pub enum Name {
     Date,
     /// The local time, `%H:%M` unless a format is given.
     Time,
+    /// Asked for with the OS's input box; the argument is the prompt (`{input:Search for}`).
+    Input,
 }
 
 impl Name {
@@ -38,6 +42,7 @@ impl Name {
             "title" => Name::Title,
             "date" => Name::Date,
             "time" => Name::Time,
+            "input" => Name::Input,
             _ => return None,
         })
     }
@@ -50,11 +55,12 @@ impl Name {
             Name::Title => "title",
             Name::Date => "date",
             Name::Time => "time",
+            Name::Input => "input",
         }
     }
 
     /// Every name, in menu order.
-    pub const ALL: [Name; 6] = [Name::Selection, Name::Clipboard, Name::App, Name::Title, Name::Date, Name::Time];
+    pub const ALL: [Name; 7] = [Name::Selection, Name::Clipboard, Name::App, Name::Title, Name::Date, Name::Time, Name::Input];
 }
 
 /// How values are written into the text.
@@ -135,10 +141,29 @@ pub fn has_any(text: &str) -> bool {
     segments(text).iter().any(|s| matches!(s, Seg::Var { .. })) || text.contains("{{") || text.contains("}}")
 }
 
-/// Expand `text`. `value` returns a placeholder's value (called once per name used; `Date` and
-/// `Time` are handled here, the callback isn't asked for them). A value error stops the expansion.
-pub fn expand(text: &str, escape: Escape, mut value: impl FnMut(Name) -> Result<String>) -> Result<String> {
+/// Expand `text`. `value` returns a placeholder's value (called once per name used; `Date`,
+/// `Time` and `Input` are handled here, the callback isn't asked for them). A value error, or a
+/// cancelled input box, stops the expansion.
+pub fn expand(text: &str, escape: Escape, value: impl FnMut(Name) -> Result<String>) -> Result<String> {
+    expand_with(text, escape, value, crate::input_box::ask, |_, v| v)
+}
+
+/// [`expand`], passing every final value (dates and input answers too) through `map` before it
+/// is escaped and inserted: for targets with no safe inline quoting, `map` can stash the value
+/// elsewhere (an environment variable) and return a reference to it, with `Escape::Raw`.
+pub fn expand_mapped(text: &str, escape: Escape, value: impl FnMut(Name) -> Result<String>, map: impl FnMut(Name, String) -> String) -> Result<String> {
+    expand_with(text, escape, value, crate::input_box::ask, map)
+}
+
+fn expand_with(
+    text: &str,
+    escape: Escape,
+    mut value: impl FnMut(Name) -> Result<String>,
+    mut ask: impl FnMut(&str) -> Result<String>,
+    mut map: impl FnMut(Name, String) -> String,
+) -> Result<String> {
     let mut cache: Vec<(Name, String)> = vec![];
+    let mut answers: Vec<(String, String)> = vec![];
     let mut out = String::with_capacity(text.len());
     for seg in segments(text) {
         match seg {
@@ -147,6 +172,17 @@ pub fn expand(text: &str, escape: Escape, mut value: impl FnMut(Name) -> Result<
                 let (fmt, mode) = split_arg(name, arg);
                 let v = match name {
                     Name::Date | Name::Time => now(name, fmt),
+                    Name::Input => {
+                        let prompt = arg.map(str::trim).filter(|p| !p.is_empty()).unwrap_or("Input");
+                        match answers.iter().find(|(p, _)| p == prompt) {
+                            Some((_, v)) => v.clone(),
+                            None => {
+                                let v = ask(prompt)?;
+                                answers.push((prompt.to_string(), v.clone()));
+                                v
+                            }
+                        }
+                    }
                     _ => match cache.iter().find(|(n, _)| *n == name) {
                         Some((_, v)) => v.clone(),
                         None => {
@@ -156,6 +192,7 @@ pub fn expand(text: &str, escape: Escape, mut value: impl FnMut(Name) -> Result<
                         }
                     },
                 };
+                let v = map(name, v);
                 let esc = mode.unwrap_or(if escape == Escape::Url && at_start { Escape::Raw } else { escape });
                 write_escaped(&mut out, &v, esc);
             }
@@ -173,7 +210,7 @@ fn split_arg(name: Name, arg: Option<&str>) -> (Option<&str>, Option<Escape>) {
         _ => None,
     };
     match (name, arg) {
-        (_, None) => (None, None),
+        (_, None) | (Name::Input, _) => (None, None), // the input's argument is its prompt
         (Name::Date | Name::Time, Some(a)) => match mode(a) {
             Some(m) => (None, Some(m)),
             None => (Some(a), None),
@@ -260,6 +297,30 @@ mod tests {
         });
         assert_eq!((out.unwrap(), calls), ("xx".into(), 1));
         assert!(expand("{clipboard}", Escape::Raw, |_| Err(crate::Error::msg("off"))).is_err());
+    }
+
+    #[test]
+    fn inputs_ask_once_per_prompt_and_cancel_stops() {
+        let mut asked = vec![];
+        let out = expand_with("git commit -m {input:Message: one line} {input:Message: one line} {input}", Escape::Shell, vals, |p| {
+            asked.push(p.to_string());
+            Ok("it's".into())
+        }, |_, v| v);
+        assert_eq!(out.unwrap(), r"git commit -m 'it'\''s' 'it'\''s' 'it'\''s'");
+        assert_eq!(asked, vec!["Message: one line", "Input"]);
+        let cancelled = expand_with("{input:x}", Escape::Raw, vals, |_| Err(crate::Error::msg(crate::input_box::CANCELLED)), |_, v| v);
+        assert!(crate::input_box::is_cancelled(&cancelled.unwrap_err()));
+    }
+
+    #[test]
+    fn mapped_values_replace_every_kind() {
+        let mut seen = vec![];
+        let out = expand_with("{app} {date:%Y} {input:Q}", Escape::Raw, vals, |_| Ok("a & b".into()), |n, v| {
+            seen.push((n, v));
+            format!("%{}%", n.as_str())
+        });
+        assert_eq!(out.unwrap(), "%app% %date% %input%");
+        assert_eq!(seen[2], (Name::Input, "a & b".to_string()));
     }
 
     #[test]

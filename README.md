@@ -190,7 +190,9 @@ Where the values come from:
 ### Placeholders
 
 With the `placeholders` feature, `ctx.expand(text)` fills in `{selection}`, `{clipboard}`,
-`{app}`, `{title}`, `{date}`, `{time}` and `{date:%A %d %B}` (any `strftime` format). `{{` and
+`{app}`, `{title}`, `{date}`, `{time}`, `{date:%A %d %B}` (any `strftime` format) and
+`{input:Prompt}`, which asks with the OS's own input box (each prompt once; Cancel stops the
+handler quietly). `{{` and
 `}}` give literal braces; other text in braces is left alone. Only the values the text uses are
 read. KnobDeck's built-in Open URL, Run Command and Launch actions use the same parser.
 
