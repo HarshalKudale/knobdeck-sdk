@@ -1,6 +1,6 @@
 [package]
 name = "knobdeck-os"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2021"
 description = "Windows, focus, selection, selected files, clipboard and installed apps on Windows, macOS and Linux: one implementation for the KnobDeck host and its plugins"
 license = "MIT"
