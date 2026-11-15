@@ -12,6 +12,9 @@
 //! - `os-clipboard`: [`clipboard`]: the clipboard's kinds, text, files and image, read only.
 //! - `os-files`: [`files`]: the files selected in File Explorer / Finder / Dolphin
 //!   (`selected()`), and the folder that window shows (`current_folder()`).
+//! - `os-document`: [`document`]: the file the target window has open (`path()`, macOS).
+//! - `os-browser`: [`browser`]: the target browser's current tab (`tab()`: url, title).
+//! - `os-pointer`: [`pointer`]: `position()` and `element_at()` (role, name, pid).
 //!
 //! In a handler, prefer the readers on [`Ctx`](crate::Ctx) (`ctx.window()`, `ctx.selection()`…)
 //! with [`Action::needs`](crate::Action::needs): they read once per press, within a time budget.
@@ -34,6 +37,15 @@ pub use knobdeck_os::clipboard;
 
 #[cfg(feature = "os-files")]
 pub use knobdeck_os::files;
+
+#[cfg(feature = "os-document")]
+pub use knobdeck_os::document;
+
+#[cfg(feature = "os-browser")]
+pub use knobdeck_os::browser;
+
+#[cfg(feature = "os-pointer")]
+pub use knobdeck_os::pointer;
 
 #[cfg(feature = "placeholders")]
 pub use knobdeck_os::{input_box, placeholders};

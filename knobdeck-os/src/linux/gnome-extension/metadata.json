@@ -1,8 +1,8 @@
 {
   "uuid": "knobdeck@knobdeck.harshalkudale.com",
   "name": "KnobDeck",
-  "description": "Lets KnobDeck and its Linux Tools plugin see the focused window, manage windows and workspaces, open the overview, search and screenshot UI, and keep a clipboard history, and lets them read the clipboard. Installed by KnobDeck.",
+  "description": "Lets KnobDeck and its Linux Tools plugin see the focused window, manage windows and workspaces, open the overview, search and screenshot UI, and keep a clipboard history, and lets them read the clipboard and the pointer position. Installed by KnobDeck.",
   "shell-version": ["45", "46", "47", "48", "49", "50", "51"],
   "url": "https://github.com/Knobdeck/knobdeck-sdk",
-  "version": 3
+  "version": 4
 }

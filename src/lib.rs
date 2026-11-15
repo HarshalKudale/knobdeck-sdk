@@ -17,7 +17,7 @@ mod error;
 mod host;
 pub mod input;
 mod log;
-#[cfg(any(feature = "os-window", feature = "os-apps", feature = "os-clipboard"))]
+#[cfg(any(feature = "os-window", feature = "os-apps", feature = "os-clipboard", feature = "os-pointer"))]
 pub mod os;
 #[cfg(feature = "oauth")]
 pub mod oauth;

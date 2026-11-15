@@ -1,6 +1,6 @@
 [package]
 name = "knobdeck-os"
-version = "0.4.1"
+version = "0.5.0"
 edition = "2021"
 description = "Windows, focus, selection, selected files, clipboard and installed apps on Windows, macOS and Linux: one implementation for the KnobDeck host and its plugins"
 license = "MIT"
@@ -19,6 +19,12 @@ selection = ["focus", "clipboard"]
 # The files selected in File Explorer / Finder / a Linux file manager, and the folder it shows
 # (Linux reads them from the PRIMARY selection, hence `clipboard`).
 files = ["window", "clipboard", "dep:windows"]
+# The file the target window has open (macOS `AXDocument`; an error elsewhere).
+document = ["window"]
+# The target browser's current tab: address (macOS AppleScript, Windows UI Automation) and title.
+browser = ["window", "dep:windows"]
+# The pointer's position (Linux: through the compositor) and the UI element under it.
+pointer = ["window", "dep:windows"]
 # Placeholders in action text ({selection}, {date:%Y-%m-%d}…): the parser and escaping.
 placeholders = ["dep:chrono"]
 # The clipboard's kinds, text, files and image, read only.

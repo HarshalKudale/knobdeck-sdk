@@ -135,7 +135,7 @@ pickers, and won't start a plugin whose `platforms` exclude its OS.
 The protocol carries no OS context. A plugin reads what an action needs itself, in its own process,
 through `knobdeck_sdk::os` (the [`knobdeck-os`](knobdeck-os/) crate KnobDeck uses too). Each part
 is a Cargo feature: `knobdeck-sdk = { ..., features = ["os-window", "os-apps"] }` (also `os-focus`,
-`os-selection`, `os-files`, `os-clipboard`).
+`os-selection`, `os-files`, `os-clipboard`, `os-document`, `os-browser`, `os-pointer`).
 
 ```rust
 use knobdeck_sdk::os::window;
@@ -167,6 +167,9 @@ ctx.focus();             // os-focus: { role, editable, password }
 ctx.selection();         // os-selection: never from a password field
 ctx.files();             // os-files: selected in File Explorer / the desktop / Finder / Dolphin
 ctx.folder();            // os-files: the folder that window shows
+ctx.document();          // os-document: the open file (macOS AXDocument)
+ctx.browser_tab();       // os-browser: { url, title, app_id } of the browser in front
+ctx.pointer();           // os-pointer: (x, y); os::pointer::element_at() → { role, name, pid }
 ctx.clipboard_text();    // os-clipboard
 ctx.clipboard_files();   // os-clipboard: copied in Explorer / Finder / a file manager
 knobdeck_sdk::os::clipboard::image()?;   // { mime, bytes }: PNG, TIFF (macOS) or BMP (Windows)
@@ -185,6 +188,14 @@ Where the values come from:
   the target window), Finder through Apple Events (macOS asks once for the Automation permission
   to control Finder), and on Linux the PRIMARY selection, which Dolphin sets to the selected
   files. Other windows give an error ("Select files in File Explorer … first").
+- **Document:** the focused window's `AXDocument` on macOS (TextEdit, Preview, Pages, Xcode…).
+  Windows and Linux have no such property: an error there.
+- **Browser:** the browser's own AppleScript on macOS (Safari and Chromium browsers; Firefox has
+  none), the address bar through UI Automation on Windows (Chromium's hidden `https://` is added
+  back). Linux gives the title only; the address needs the KnobDeck Browser Companion.
+- **Pointer:** `GetCursorPos` / the current `CGEvent` / the compositor on Linux (KWin script,
+  GNOME extension version 4, X11). The element under it: UI Automation `ElementFromPoint`,
+  `AXUIElementCopyElementAtPosition`; not on Linux.
 - **Clipboard:** the Win32 clipboard, `NSPasteboard`, and on Linux the compositor:
   `ext-data-control` / `wlr-data-control` on KDE Plasma, Hyprland and wlroots, the KnobDeck Shell
   extension (version 3) on GNOME, or the X selection.
@@ -197,7 +208,7 @@ Where the values come from:
 
 With the `placeholders` feature, `ctx.expand(text)` fills in `{selection}`, `{files}` (one path
 per line; each quoted and space-separated with `Escape::Shell` or as `{files:quoted}`), `{file}`
-(the first), `{clipboard}`,
+(the first), `{url}` (the browser's address), `{document}` (the open file, macOS), `{clipboard}`,
 `{app}`, `{title}`, `{date}`, `{time}`, `{date:%A %d %B}` (any `strftime` format) and
 `{input:Prompt}`, which asks with the OS's own input box (each prompt once; Cancel stops the
 handler quietly). `{{` and

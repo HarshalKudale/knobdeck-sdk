@@ -67,6 +67,8 @@ function unmaximize(w) {
 
 function run(cmd, a) {
     switch (cmd) {
+        case "cursor":
+            return { x: workspace.cursorPos.x, y: workspace.cursorPos.y };
         case "outputs":
             return outputs();
         case "list":

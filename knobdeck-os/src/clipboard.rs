@@ -64,30 +64,12 @@ pub(crate) fn parse_uri_list(text: &str) -> Vec<PathBuf> {
         .map(|rest| {
             // `file://host/path`: drop a host part (usually empty or localhost).
             let path = if rest.starts_with('/') { rest } else { rest.find('/').map_or("", |i| &rest[i..]) };
-            PathBuf::from(percent_decode(path))
+            PathBuf::from(crate::percent_decode(path))
         })
         .filter(|p| p.as_os_str().len() > 1)
         .collect()
 }
 
-#[cfg_attr(windows, allow(dead_code))]
-fn percent_decode(s: &str) -> String {
-    let b = s.as_bytes();
-    let mut out = Vec::with_capacity(b.len());
-    let mut i = 0;
-    while i < b.len() {
-        if b[i] == b'%' && i + 2 < b.len() {
-            if let Ok(v) = u8::from_str_radix(std::str::from_utf8(&b[i + 1..i + 3]).unwrap_or("zz"), 16) {
-                out.push(v);
-                i += 3;
-                continue;
-            }
-        }
-        out.push(b[i]);
-        i += 1;
-    }
-    String::from_utf8_lossy(&out).into_owned()
-}
 
 #[cfg(windows)]
 use crate::win_clipboard as sys;
@@ -101,6 +83,7 @@ use crate::linux::clipboard as sys;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::percent_decode;
 
     #[test]
     fn uri_lists() {

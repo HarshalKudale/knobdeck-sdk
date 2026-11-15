@@ -1,5 +1,6 @@
 //! Placeholders in action text: `{selection}`, `{files}`, `{file}`, `{clipboard}`, `{app}`,
-//! `{title}`, `{date}`, `{time}`, `{date:%Y-%m-%d}`. One parser for KnobDeck's built-in actions and for plugins
+//! `{title}`, `{url}` (the browser's address), `{document}` (the open file, macOS), `{date}`,
+//! `{time}`, `{date:%Y-%m-%d}`. One parser for KnobDeck's built-in actions and for plugins
 //! (`ctx.expand` in the SDK).
 //!
 //! - Single braces, as in Raycast-style snippets. `{name}` is special only for the names above,
@@ -33,6 +34,10 @@ pub enum Name {
     App,
     /// The target window's title.
     Title,
+    /// The address of the target browser's current tab.
+    Url,
+    /// The path of the file the target window has open (macOS).
+    Document,
     /// Today's date (local), `%Y-%m-%d` unless a format is given.
     Date,
     /// The local time, `%H:%M` unless a format is given.
@@ -50,6 +55,8 @@ impl Name {
             "clipboard" => Name::Clipboard,
             "app" => Name::App,
             "title" => Name::Title,
+            "url" => Name::Url,
+            "document" => Name::Document,
             "date" => Name::Date,
             "time" => Name::Time,
             "input" => Name::Input,
@@ -65,6 +72,8 @@ impl Name {
             Name::Clipboard => "clipboard",
             Name::App => "app",
             Name::Title => "title",
+            Name::Url => "url",
+            Name::Document => "document",
             Name::Date => "date",
             Name::Time => "time",
             Name::Input => "input",
@@ -72,7 +81,7 @@ impl Name {
     }
 
     /// Every name, in menu order.
-    pub const ALL: [Name; 9] = [Name::Selection, Name::Files, Name::File, Name::Clipboard, Name::App, Name::Title, Name::Date, Name::Time, Name::Input];
+    pub const ALL: [Name; 11] = [Name::Selection, Name::Files, Name::File, Name::Clipboard, Name::App, Name::Title, Name::Url, Name::Document, Name::Date, Name::Time, Name::Input];
 }
 
 /// How values are written into the text.

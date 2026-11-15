@@ -57,16 +57,17 @@ Fields: `instance_id`, `action_id`, `trigger` (`press`, `adjust`, `hold_start`, 
 | `send_keys(keys)` | the only host call; last resort |
 | `focus_app(app)` | os-window: the app's frontmost window to the front (in this process) |
 | `installed_apps()` | os-apps: cached `Vec<InstalledApp>` (`label`, `value`, `executable`, `working_dir`) |
-| `window()` `focus()` `selection()` `files()` `folder()` `clipboard_text()` `clipboard_files()` | OS context, read once per press (lazy; prefetched by `.needs`) |
+| `window()` `focus()` `selection()` `files()` `folder()` `clipboard_text()` `clipboard_files()` `document()` `browser_tab()` `pointer()` | OS context, read once per press (lazy; prefetched by `.needs`) |
 | `context_error(Need::Selection)` | why a context reader returned `None` |
-| `expand(text)` / `expand_as(text, Escape::Url \| Shell \| AppleScript)` | feature `placeholders`: `{selection}` `{files}` (one per line; quoted and space-separated with `Escape::Shell` or `{files:quoted}`) `{file}` `{clipboard}` `{app}` `{title}` `{date[:fmt]}` `{time[:fmt]}` `{input:Prompt}` (OS input box; cancel stops quietly), `{{`/`}}`; pair with `input::textarea(..).accepts_placeholders()` |
+| `expand(text)` / `expand_as(text, Escape::Url \| Shell \| AppleScript)` | feature `placeholders`: `{selection}` `{files}` (one per line; quoted and space-separated with `Escape::Shell` or `{files:quoted}`) `{file}` `{url}` `{document}` `{clipboard}` `{app}` `{title}` `{date[:fmt]}` `{time[:fmt]}` `{input:Prompt}` (OS input box; cancel stops quietly), `{{`/`}}`; pair with `input::textarea(..).accepts_placeholders()` |
 
-`Action::needs(&[Need::Window | Focus | Selection | Files | Clipboard])`: read before the handler runs
+`Action::needs(&[Need::Window | Focus | Selection | Files | Clipboard | Document | Browser | Pointer])`: read before the handler runs
 (parallel, 300 ms budget, `.needs_timeout(d)`), listed in `actions.json` `needs`. Each `Need` needs
-its feature (`os-window`, `os-focus`, `os-selection`, `os-files`, `os-clipboard`).
+its feature (`os-window`, `os-focus`, `os-selection`, `os-files`, `os-clipboard`, `os-document`,
+`os-browser`, `os-pointer`).
 `OpenCtx::files()` (os-files) reads the selection when a dynamic wheel opens.
 
-## os (features `os-window`, `os-apps`, `os-focus`, `os-selection`, `os-files`, `os-clipboard`)
+## os (features `os-window`, `os-apps`, `os-focus`, `os-selection`, `os-files`, `os-clipboard`, `os-document`, `os-browser`, `os-pointer`)
 
 `os::window::{target, foreground, list, focus, focus_app, watch, wait_for}`; `Window { id, pid,
 app_id, app_name, title, bounds, monitor, state: WindowState { maximized, minimized, fullscreen,
@@ -76,6 +77,8 @@ desktop, bus}`. `knobdeck_sdk::host_process_id()` is KnobDeck's pid.
 `os::selection::{text, text_via_copy(send_copy_keys)}` (1 MiB cap; never a password field).
 `os::files::{selected, current_folder}` (File Explorer / desktop, Finder (Automation permission),
 Dolphin via PRIMARY; error when the target isn't a file manager; 10 000 paths cap).
+`os::document::path()` (macOS). `os::browser::{tab -> Tab { url, title, app_id }, is_browser,
+strip_browser_name}`. `os::pointer::{position, element_at -> Element { role, name, pid }}`.
 `os::clipboard::{types -> [Kind::Text|Files|Image|Html], text, files, image -> Image { mime, bytes }}`.
 
 `Visual::new().label(..).icon(..).state(..)`

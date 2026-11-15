@@ -134,13 +134,53 @@ impl WatchObject {
 
 /// A KWin script that stays loaded and calls back when the active window changes, or the active
 /// window's caption, maximize, full screen, minimize or keep-above state does. Unloaded on drop.
-/// (If KWin itself restarts, the script is gone: the watcher then reports nothing until it is
-/// made again.)
+/// If KWin restarts (`kwin_wayland --replace`, a crash), the script is gone with it: the watch
+/// loads it again when `org.kde.KWin` gets an owner again.
 pub struct Watch {
     id: u64,
     plugin: String,
     path: String,
     file: std::path::PathBuf,
+    /// The connection that listens for KWin coming back; closing it ends that thread.
+    restart: Option<(Connection, std::sync::Arc<std::sync::atomic::AtomicBool>)>,
+}
+
+/// Reload the watch script whenever KWin's bus name gets a new owner.
+fn follow_restarts(file: std::path::PathBuf, plugin: String, tick: Sender<()>) -> Option<(Connection, std::sync::Arc<std::sync::atomic::AtomicBool>)> {
+    let conn = Connection::session().ok()?;
+    let rule = zbus::MatchRule::builder()
+        .msg_type(zbus::message::Type::Signal)
+        .sender("org.freedesktop.DBus")
+        .and_then(|b| b.interface("org.freedesktop.DBus"))
+        .and_then(|b| b.member("NameOwnerChanged"))
+        .and_then(|b| b.arg(0, "org.kde.KWin"))
+        .ok()?
+        .build();
+    let messages = zbus::blocking::MessageIterator::for_match_rule(rule, &conn, Some(4)).ok()?;
+    let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let stopped = stop.clone();
+    std::thread::Builder::new()
+        .name("knobdeck-os-kwin-restart".into())
+        .spawn(move || {
+            for m in messages {
+                let Ok(m) = m else { break };
+                if stopped.load(Ordering::Relaxed) {
+                    break;
+                }
+                let Ok((_, _, new_owner)) = m.body().deserialize::<(String, String, String)>() else { continue };
+                if new_owner.is_empty() {
+                    continue; // KWin went away; wait for it to come back
+                }
+                // Scripting is up a moment after the name is taken.
+                std::thread::sleep(Duration::from_millis(1500));
+                if let Ok(c) = bus::session() {
+                    let _ = load(&c, &file, &plugin);
+                }
+                let _ = tick.send(());
+            }
+        })
+        .ok()?;
+    Some((conn, stop))
 }
 
 pub fn watch(tick: Sender<()>) -> Result<Watch> {
@@ -152,15 +192,26 @@ pub fn watch(tick: Sender<()>) -> Result<Watch> {
     WATCHERS.lock().unwrap().get_or_insert_with(HashMap::new).insert(id, tick);
     let plugin = format!("knobdeck-watch-{}-{id}", std::process::id());
     let file = script_dir().join(format!("{plugin}.js"));
-    let w = Watch { id, plugin, path, file };
+    let mut w = Watch { id, plugin, path, file, restart: None };
     let js = format!("const SERVICE = {}; const PATH = {}; const IFACE = {};\n{WATCH_JS}", json!(service), json!(w.path), json!(WATCH_IFACE));
     std::fs::write(&w.file, js)?;
     load(&conn, &w.file, &w.plugin)?;
+    w.restart = follow_restarts(w.file.clone(), w.plugin.clone(), tick_for(id));
     Ok(w)
+}
+
+/// The watcher's tick sender, for the restart thread.
+fn tick_for(id: u64) -> Sender<()> {
+    let (dead, _) = std::sync::mpsc::channel();
+    WATCHERS.lock().unwrap().as_ref().and_then(|w| w.get(&id).cloned()).unwrap_or(dead)
 }
 
 impl Drop for Watch {
     fn drop(&mut self) {
+        if let Some((conn, stop)) = self.restart.take() {
+            stop.store(true, Ordering::Relaxed);
+            let _ = conn.close();
+        }
         if let Ok(conn) = bus::session() {
             unload(&conn, &self.plugin);
             let _ = conn.object_server().remove::<WatchObject, _>(self.path.as_str());

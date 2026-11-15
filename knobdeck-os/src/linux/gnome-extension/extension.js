@@ -29,7 +29,7 @@ import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 
 const BUS_NAME = 'dev.knobdeck.Shell';
 const OBJECT_PATH = '/dev/knobdeck/Shell';
-const VERSION = 3;
+const VERSION = 4;
 const MAX_CLIPS = 30;
 
 const IFACE = `
@@ -394,6 +394,10 @@ class Bridge {
         case 'clipboard-set':
             St.Clipboard.get_default().set_text(St.ClipboardType.CLIPBOARD, String(a.text ?? ''));
             return null;
+        case 'pointer': {
+            const [x, y] = global.get_pointer();
+            return {x, y};
+        }
         case 'version':
             return VERSION;
         default:
