@@ -397,6 +397,103 @@ Run an action in the app; answered by a `response` with the same `id`.
 {"type":"request","id":"7","action":"set-tool","params":{"tool":"brush"}}
 ```
 
+## Control client → KnobDeck (layer 3)
+
+A local program drives KnobDeck over a Unix socket (`<runtime folder>/knobdeck/control.sock`) on macOS and Linux or a named pipe (`\\.\pipe\knobdeck-control-<user name>`) on Windows, one JSON object per line. Off by default (`controlApi.enabled` in settings). The first line is `hello` with the token from `control-token` in KnobDeck's data folder. Commands: `open_dial`, `close_dial`, `run_item`, `list_profiles`, `list_plugins`, `subscribe`. Control protocol 1.
+
+### `hello`
+
+The first line.
+
+| Field | Type | Required | Meaning |
+|---|---|---|---|
+| `protocol` | `number` | yes |  |
+| `token` | `string` | yes | The contents of `TOKEN_FILE`, trimmed. |
+| `client` | `string` | no | Who is calling, for KnobDeck's log ("obs-script", "raycast"). |
+
+```json
+{"type":"hello","protocol":1,"token":"9f2c…","client":"obs-script"}
+```
+
+### `request`
+
+Run a command; answered by a `response` with the same `id`.
+
+| Field | Type | Required | Meaning |
+|---|---|---|---|
+| `id` | `string` | yes |  |
+| `cmd` | `string` | yes | A `commands` value. |
+| `params` | `unknown` | no |  |
+
+```json
+{"type":"request","id":"1","cmd":"open_dial","params":{"profile_id":"streaming"}}
+{"type":"request","id":"2","cmd":"run_item","params":{"profile_id":"streaming","item_id":"mute-mic"}}
+{"type":"request","id":"3","cmd":"run_item","params":{"profile_id":"streaming","item_id":"volume","value":40.0}}
+{"type":"request","id":"4","cmd":"list_profiles","params":{}}
+{"type":"request","id":"5","cmd":"subscribe","params":{"events":["dial_opened","dial_closed"]}}
+{"type":"request","id":"6","cmd":"close_dial","params":{}}
+{"type":"request","id":"7","cmd":"list_plugins","params":{}}
+```
+
+## KnobDeck → control client (layer 3)
+
+### `ready`
+
+`hello` was accepted.
+
+| Field | Type | Required | Meaning |
+|---|---|---|---|
+| `protocol` | `number` | yes |  |
+| `host_version` | `string` | yes |  |
+| `commands` | `string[]` | yes | The `commands` this KnobDeck takes. |
+
+```json
+{"type":"ready","protocol":1,"host_version":"1.0.0","commands":["open_dial","close_dial","run_item","list_profiles","list_plugins","subscribe"]}
+```
+
+### `refused`
+
+`hello` was refused; the connection closes after this.
+
+| Field | Type | Required | Meaning |
+|---|---|---|---|
+| `reason` | `string` | yes |  |
+
+```json
+{"type":"refused","reason":"wrong token"}
+```
+
+### `response`
+
+The answer to a `request`.
+
+| Field | Type | Required | Meaning |
+|---|---|---|---|
+| `id` | `string` | yes |  |
+| `ok` | `boolean` | yes |  |
+| `result` | `unknown` | no |  |
+| `error` | `string` | no |  |
+
+```json
+{"type":"response","id":"1","ok":true,"result":true}
+{"type":"response","id":"4","ok":true,"result":[{"id":"default","name":"Default","default":true},{"id":"streaming","name":"Streaming","default":false}]}
+{"type":"response","id":"7","ok":true,"result":[{"id":"obs","name":"OBS Studio","version":"1.4.0","status":"running"}]}
+{"type":"response","id":"2","ok":false,"error":"no item \"mute-mic\" in dial profile \"streaming\""}
+```
+
+### `event`
+
+A subscribed host event.
+
+| Field | Type | Required | Meaning |
+|---|---|---|---|
+| `event` | `string` | yes |  |
+| `payload` | `unknown` | no |  |
+
+```json
+{"type":"event","event":"dial_opened","payload":{"profile_id":"streaming"}}
+```
+
 ## Payloads
 
 Typed contents of `event.payload`, `host_call.params` and `result.value`; see the event and host call names above.
@@ -501,3 +598,42 @@ Payload of `companion_disconnected`.
 | Field | Type | Required | Meaning |
 |---|---|---|---|
 | `profile_id` | `string` | no | The dial profile to show. Absent: the one the user's auto-open rules pick, as the dial keybind does. |
+
+### `PluginSummary`
+
+One plugin in `list_plugins`.
+
+| Field | Type | Required | Meaning |
+|---|---|---|---|
+| `id` | `string` | yes |  |
+| `name` | `string` | yes |  |
+| `version` | `string` | no |  |
+| `status` | `string` | yes | `running`, `stopped`, `crashed`, `setup_required` or `outdated`. |
+
+### `ProfileSummary`
+
+One dial profile in `list_profiles`.
+
+| Field | Type | Required | Meaning |
+|---|---|---|---|
+| `id` | `string` | yes |  |
+| `name` | `string` | yes |  |
+| `default` | `boolean` | no | The profile the dial keybind opens when no auto-open rule matches. |
+
+### `RunItem`
+
+`params` of `run_item`.
+
+| Field | Type | Required | Meaning |
+|---|---|---|---|
+| `profile_id` | `string` | yes | A dial profile id (`list_profiles`). |
+| `item_id` | `string` | yes | The item's id in that profile (folders included). |
+| `value` | `number` | no | For a slider: the value to set. |
+
+### `Subscribe`
+
+`params` of `subscribe`.
+
+| Field | Type | Required | Meaning |
+|---|---|---|---|
+| `events` | `string[]` | yes | Event names; an empty list unsubscribes from everything. |

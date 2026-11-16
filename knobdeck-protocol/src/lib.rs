@@ -150,6 +150,7 @@ pub mod host_calls {
 }
 
 pub mod companion;
+pub mod control;
 #[cfg(feature = "schema")]
 pub mod generate;
 

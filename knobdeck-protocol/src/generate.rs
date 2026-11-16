@@ -3,7 +3,7 @@
 //! (`KNOBDECK_BLESS=1 cargo test -p knobdeck-protocol --features schema` rewrites them).
 
 use crate::{
-    companion, events, features, fixtures, host_calls, requests, triggers, AppState, DialOpened, HostMsg, Notify, OpenDial, PluginMsg, MIN_PROTOCOL,
+    companion, control, events, features, fixtures, host_calls, requests, triggers, AppState, DialOpened, HostMsg, Notify, OpenDial, PluginMsg, MIN_PROTOCOL,
     PROTOCOL,
 };
 use serde_json::Value;
@@ -30,13 +30,15 @@ struct Dir {
     schema: Value,
 }
 
-fn directions() -> [Dir; 4] {
+fn directions() -> [Dir; 6] {
     let s = |v: schemars::Schema| serde_json::to_value(v).unwrap();
     [
         Dir { file: "host-to-plugin.json", prefix: "Host", union: "HostMsg", title: "Host → plugin", fixture: fixtures::V2, dir: "to_plugin", var: "toPlugin", schema: s(schemars::schema_for!(HostMsg)) },
         Dir { file: "plugin-to-host.json", prefix: "Plugin", union: "PluginMsg", title: "Plugin → host", fixture: fixtures::V2, dir: "to_host", var: "toHost", schema: s(schemars::schema_for!(PluginMsg)) },
         Dir { file: "companion-to-hub.json", prefix: "Companion", union: "CompanionMsg", title: "Companion → hub (layer 2)", fixture: companion::FIXTURES_V1, dir: "to_hub", var: "toHub", schema: s(schemars::schema_for!(companion::CompanionMsg)) },
         Dir { file: "hub-to-companion.json", prefix: "Hub", union: "HubMsg", title: "Hub → companion (layer 2)", fixture: companion::FIXTURES_V1, dir: "to_companion", var: "toCompanion", schema: s(schemars::schema_for!(companion::HubMsg)) },
+        Dir { file: "control-client.json", prefix: "Client", union: "ClientMsg", title: "Control client → KnobDeck (layer 3)", fixture: control::FIXTURES_V1, dir: "to_server", var: "toServer", schema: s(schemars::schema_for!(control::ClientMsg)) },
+        Dir { file: "control-server.json", prefix: "Server", union: "ServerMsg", title: "KnobDeck → control client (layer 3)", fixture: control::FIXTURES_V1, dir: "to_client", var: "toClient", schema: s(schemars::schema_for!(control::ServerMsg)) },
     ]
 }
 
@@ -58,6 +60,10 @@ pub fn payload_defs() -> BTreeMap<String, Value> {
     g.subschema_for::<companion::LinkRequest>();
     g.subschema_for::<companion::ActionResult>();
     g.subschema_for::<companion::Discovery>();
+    g.subschema_for::<control::RunItem>();
+    g.subschema_for::<control::Subscribe>();
+    g.subschema_for::<control::ProfileSummary>();
+    g.subschema_for::<control::PluginSummary>();
     g.take_definitions(true).into_iter().collect()
 }
 
@@ -227,6 +233,12 @@ pub fn typescript() -> String {
     let _ = writeln!(out, "/** Ping every this many seconds; the hub drops a link silent for `COMPANION_SILENT_DROP_SECS`. */");
     let _ = writeln!(out, "export const COMPANION_PING_EVERY_SECS = {};", companion::PING_EVERY_SECS);
     let _ = writeln!(out, "export const COMPANION_SILENT_DROP_SECS = {};\n", companion::SILENT_DROP_SECS);
+    let _ = writeln!(out, "/** The control protocol number (layer 3). */");
+    let _ = writeln!(out, "export const CONTROL_PROTOCOL = {};", control::CONTROL_PROTOCOL);
+    let _ = writeln!(out, "export const CONTROL_UNIX_SOCKET = {:?};", control::UNIX_SOCKET);
+    let _ = writeln!(out, "export const CONTROL_PIPE_PREFIX = {:?};", control::PIPE_PREFIX);
+    let _ = writeln!(out, "export const CONTROL_TOKEN_FILE = {:?};\n", control::TOKEN_FILE);
+    ts_list(&mut out, "CONTROL_COMMANDS", "ControlCommand", "Commands of the control API.", control::commands::ALL);
     ts_list(&mut out, "FEATURES", "Feature", "Optional host behaviour, listed in `hello.features`.", features::ALL);
     ts_list(&mut out, "EVENTS", "EventName", "Host events a plugin can subscribe to.", events::ALL);
     ts_list(&mut out, "TRIGGERS", "Trigger", "Values of `invoke.trigger`.", triggers::ALL);
@@ -357,6 +369,21 @@ calls. Companion protocol {}; same compatibility rules as the plugin protocol.\n
                 companion::DEFAULT_PORT,
                 companion::DEFAULT_PORT + companion::PORT_RANGE - 1,
                 companion::COMPANION_PROTOCOL
+            );
+        }
+        if dir == "to_server" {
+            let cmds: Vec<String> = control::commands::ALL.iter().map(|c| format!("`{c}`")).collect();
+            let _ = writeln!(
+                out,
+                "A local program drives KnobDeck over a Unix socket (`<runtime folder>/knobdeck/{}`) on macOS and \
+Linux or a named pipe (`{}<user name>`) on Windows, one JSON object per line. Off by default (`controlApi.enabled` \
+in settings). The first line is `hello` with the token from `{}` in KnobDeck's data folder. Commands: {}. \
+Control protocol {}.\n",
+                control::UNIX_SOCKET,
+                control::PIPE_PREFIX,
+                control::TOKEN_FILE,
+                cmds.join(", "),
+                control::CONTROL_PROTOCOL
             );
         }
         let examples = fixtures::frames(fixture, dir);

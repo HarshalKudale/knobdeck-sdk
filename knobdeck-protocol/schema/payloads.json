@@ -242,6 +242,96 @@
         }
       },
       "description": "`params` of the `open_dial` host call."
+    },
+    "PluginSummary": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "type": "string",
+          "description": "`running`, `stopped`, `crashed`, `setup_required` or `outdated`."
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "status"
+      ],
+      "description": "One plugin in `list_plugins`."
+    },
+    "ProfileSummary": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "default": {
+          "type": "boolean",
+          "description": "The profile the dial keybind opens when no auto-open rule matches.",
+          "default": false
+        }
+      },
+      "required": [
+        "id",
+        "name"
+      ],
+      "description": "One dial profile in `list_profiles`."
+    },
+    "RunItem": {
+      "type": "object",
+      "properties": {
+        "profile_id": {
+          "type": "string",
+          "description": "A dial profile id (`list_profiles`)."
+        },
+        "item_id": {
+          "type": "string",
+          "description": "The item's id in that profile (folders included)."
+        },
+        "value": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double",
+          "description": "For a slider: the value to set."
+        }
+      },
+      "required": [
+        "profile_id",
+        "item_id"
+      ],
+      "description": "`params` of `run_item`."
+    },
+    "Subscribe": {
+      "type": "object",
+      "properties": {
+        "events": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Event names; an empty list unsubscribes from everything."
+        }
+      },
+      "required": [
+        "events"
+      ],
+      "description": "`params` of `subscribe`."
     }
   }
 }

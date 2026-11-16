@@ -18,6 +18,16 @@ export const COMPANION_PORTS = [32150, 32151, 32152, 32153, 32154] as const;
 export const COMPANION_PING_EVERY_SECS = 20;
 export const COMPANION_SILENT_DROP_SECS = 75;
 
+/** The control protocol number (layer 3). */
+export const CONTROL_PROTOCOL = 1;
+export const CONTROL_UNIX_SOCKET = "control.sock";
+export const CONTROL_PIPE_PREFIX = "\\\\.\\pipe\\knobdeck-control-";
+export const CONTROL_TOKEN_FILE = "control-token";
+
+/** Commands of the control API. */
+export const CONTROL_COMMANDS = ["open_dial", "close_dial", "run_item", "list_profiles", "list_plugins", "subscribe"] as const;
+export type ControlCommand = (typeof CONTROL_COMMANDS)[number];
+
 /** Optional host behaviour, listed in `hello.features`. */
 export const FEATURES = ["state_match", "events", "notify", "app_state", "open_dial", "companion_hub"] as const;
 export type Feature = (typeof FEATURES)[number];
@@ -233,6 +243,33 @@ export interface OpenDial {
   profile_id?: string;
 }
 
+/** One plugin in `list_plugins`. */
+export interface PluginSummary {
+  id: string;
+  name: string;
+  version?: string;
+  /** `running`, `stopped`, `crashed`, `setup_required` or `outdated`. */
+  status: string;
+}
+
+/** One dial profile in `list_profiles`. */
+export interface ProfileSummary {
+  id: string;
+  name: string;
+  /** The profile the dial keybind opens when no auto-open rule matches. */
+  default?: boolean;
+}
+
+/** `params` of `run_item`. */
+export interface RunItem {
+  /** A dial profile id (`list_profiles`). */
+  profile_id: string;
+  /** The item's id in that profile (folders included). */
+  item_id: string;
+  /** For a slider: the value to set. */
+  value?: number;
+}
+
 /** The body of a `state` frame: a new state and/or a temporary label or icon, and who gets it. */
 export interface StateUpdate {
   /** One instance. Wins over `action_id`. */
@@ -250,6 +287,12 @@ export interface StateUpdate {
   label?: string;
   /** A temporary icon name shown instead of the configured one. */
   icon?: string;
+}
+
+/** `params` of `subscribe`. */
+export interface Subscribe {
+  /** Event names; an empty list unsubscribes from everything. */
+  events: string[];
 }
 
 /** Always the first line. */
@@ -457,3 +500,65 @@ export type HubMsg =
   | HubRefused
   | HubPong
   | HubRequest;
+
+/** The first line. */
+export interface ClientHello {
+  type: "hello";
+  protocol: number;
+  /** The contents of `TOKEN_FILE`, trimmed. */
+  token: string;
+  /** Who is calling, for KnobDeck's log ("obs-script", "raycast"). */
+  client?: string;
+}
+
+/** Run a command; answered by a `response` with the same `id`. */
+export interface ClientRequest {
+  type: "request";
+  id: string;
+  /** A `commands` value. */
+  cmd: string;
+  params?: unknown;
+}
+
+/** A line a client sends. */
+export type ClientMsg =
+  | ClientHello
+  | ClientRequest;
+
+/** `hello` was accepted. */
+export interface ServerReady {
+  type: "ready";
+  protocol: number;
+  host_version: string;
+  /** The `commands` this KnobDeck takes. */
+  commands: string[];
+}
+
+/** `hello` was refused; the connection closes after this. */
+export interface ServerRefused {
+  type: "refused";
+  reason: string;
+}
+
+/** The answer to a `request`. */
+export interface ServerResponse {
+  type: "response";
+  id: string;
+  ok: boolean;
+  result?: unknown;
+  error?: string;
+}
+
+/** A subscribed host event. */
+export interface ServerEvent {
+  type: "event";
+  event: string;
+  payload?: unknown;
+}
+
+/** A line KnobDeck sends. */
+export type ServerMsg =
+  | ServerReady
+  | ServerRefused
+  | ServerResponse
+  | ServerEvent;

@@ -1,7 +1,7 @@
 // Generated from the knobdeck-protocol crate (knobdeck-sdk repo). Do not edit: change the Rust
 // types and run `KNOBDECK_BLESS=1 cargo test -p knobdeck-protocol --features schema`.
 
-import type { HostMsg, PluginMsg, CompanionMsg, HubMsg } from "./protocol";
+import type { HostMsg, PluginMsg, CompanionMsg, HubMsg, ClientMsg, ServerMsg } from "./protocol";
 
 export const toPlugin: HostMsg[] = [
   {"type":"hello","protocol":2,"plugin_id":"example-rust","data_dir":"/tmp/knobdeck/plugin-data/example-rust","host_version":"1.0.0","features":["state_match","events","notify","app_state","open_dial","companion_hub"],"host_pid":4242},
@@ -60,4 +60,25 @@ export const toCompanion: HubMsg[] = [
   {"type":"refused","reason":"wrong token"},
   {"type":"pong"},
   {"type":"request","id":"7","action":"set-tool","params":{"tool":"brush"}},
+];
+
+export const toServer: ClientMsg[] = [
+  {"type":"hello","protocol":1,"token":"9f2c…","client":"obs-script"},
+  {"type":"request","id":"1","cmd":"open_dial","params":{"profile_id":"streaming"}},
+  {"type":"request","id":"2","cmd":"run_item","params":{"profile_id":"streaming","item_id":"mute-mic"}},
+  {"type":"request","id":"3","cmd":"run_item","params":{"profile_id":"streaming","item_id":"volume","value":40.0}},
+  {"type":"request","id":"4","cmd":"list_profiles","params":{}},
+  {"type":"request","id":"5","cmd":"subscribe","params":{"events":["dial_opened","dial_closed"]}},
+  {"type":"request","id":"6","cmd":"close_dial","params":{}},
+  {"type":"request","id":"7","cmd":"list_plugins","params":{}},
+];
+
+export const toClient: ServerMsg[] = [
+  {"type":"ready","protocol":1,"host_version":"1.0.0","commands":["open_dial","close_dial","run_item","list_profiles","list_plugins","subscribe"]},
+  {"type":"refused","reason":"wrong token"},
+  {"type":"response","id":"1","ok":true,"result":true},
+  {"type":"response","id":"4","ok":true,"result":[{"id":"default","name":"Default","default":true},{"id":"streaming","name":"Streaming","default":false}]},
+  {"type":"response","id":"7","ok":true,"result":[{"id":"obs","name":"OBS Studio","version":"1.4.0","status":"running"}]},
+  {"type":"response","id":"2","ok":false,"error":"no item \"mute-mic\" in dial profile \"streaming\""},
+  {"type":"event","event":"dial_opened","payload":{"profile_id":"streaming"}},
 ];

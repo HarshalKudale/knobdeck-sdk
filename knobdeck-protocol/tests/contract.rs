@@ -160,6 +160,52 @@ fn companion_payloads_in_the_plugin_fixtures_fit_their_types() {
 }
 
 #[test]
+fn every_control_line_round_trips() {
+    use knobdeck_protocol::control::{commands, ClientMsg, PluginSummary, ProfileSummary, RunItem, ServerMsg, Subscribe, FIXTURES_V1};
+    use knobdeck_protocol::OpenDial;
+    let raw = |dir: &str| -> Vec<String> {
+        FIXTURES_V1
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .filter_map(|l| {
+                let e: serde_json::Value = serde_json::from_str(l).unwrap();
+                (e["dir"] == dir).then(|| e["frame"].to_string())
+            })
+            .collect()
+    };
+    let mut cmds = vec![];
+    for f in raw("to_server") {
+        let m: ClientMsg = serde_json::from_str(&f).unwrap_or_else(|e| panic!("{f}: {e}"));
+        assert_ne!(m, ClientMsg::Unknown);
+        assert_eq!(serde_json::to_string(&m).unwrap(), f);
+        if let ClientMsg::Request { cmd, params, .. } = m {
+            match cmd.as_str() {
+                commands::OPEN_DIAL => drop(serde_json::from_value::<OpenDial>(params).unwrap()),
+                commands::RUN_ITEM => drop(serde_json::from_value::<RunItem>(params).unwrap()),
+                commands::SUBSCRIBE => drop(serde_json::from_value::<Subscribe>(params).unwrap()),
+                _ => {}
+            }
+            cmds.push(cmd);
+        }
+    }
+    for c in commands::ALL {
+        assert!(cmds.iter().any(|x| x == c), "no fixture request for {c}");
+    }
+    for f in raw("to_client") {
+        let m: ServerMsg = serde_json::from_str(&f).unwrap_or_else(|e| panic!("{f}: {e}"));
+        assert_ne!(m, ServerMsg::Unknown);
+        assert_eq!(serde_json::to_string(&m).unwrap(), f);
+        if let ServerMsg::Response { id, result: Some(r), .. } = &m {
+            match id.as_str() {
+                "4" => drop(serde_json::from_value::<Vec<ProfileSummary>>(r.clone()).unwrap()),
+                "7" => drop(serde_json::from_value::<Vec<PluginSummary>>(r.clone()).unwrap()),
+                _ => {}
+            }
+        }
+    }
+}
+
+#[test]
 fn a_null_result_value_is_not_the_same_as_none() {
     let r: HostMsg = serde_json::from_str(r#"{"type":"result","id":"1","ok":true,"value":null}"#).unwrap();
     let HostMsg::Result(r) = r else { panic!() };

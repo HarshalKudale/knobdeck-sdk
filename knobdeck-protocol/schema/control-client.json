@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ClientMsg",
+  "description": "A line a client sends.",
+  "oneOf": [
+    {
+      "description": "The first line.",
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "hello"
+        },
+        "protocol": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "token": {
+          "description": "The contents of [`TOKEN_FILE`], trimmed.",
+          "type": "string"
+        },
+        "client": {
+          "description": "Who is calling, for KnobDeck's log (\"obs-script\", \"raycast\").",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "protocol",
+        "token"
+      ]
+    },
+    {
+      "description": "Run a command; answered by a `response` with the same `id`.",
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "request"
+        },
+        "id": {
+          "type": "string"
+        },
+        "cmd": {
+          "description": "A [`commands`] value.",
+          "type": "string"
+        },
+        "params": {
+          "default": null
+        }
+      },
+      "required": [
+        "type",
+        "id",
+        "cmd"
+      ]
+    }
+  ]
+}
