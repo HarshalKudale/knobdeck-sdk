@@ -1,0 +1,31 @@
+{
+  "name": "@knobdeck/companion",
+  "version": "0.1.0",
+  "description": "Client for KnobDeck's companion hub: connect an add-on inside another app to its KnobDeck plugin",
+  "license": "MIT",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Knobdeck/knobdeck-sdk.git",
+    "directory": "typescript/companion"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./node": "./src/node.ts"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "scripts": {
+    "check": "tsc -p tsconfig.json",
+    "test": "node --experimental-strip-types --test test/*.test.ts"
+  },
+  "engines": {
+    "node": ">=22.6"
+  },
+  "devDependencies": {
+    "@types/node": "22.10.2",
+    "typescript": "5.6.3"
+  }
+}

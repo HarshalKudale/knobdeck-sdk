@@ -37,3 +37,18 @@ jobs:
       - name: tsc --strict on the generated types
         working-directory: knobdeck-protocol/typescript
         run: npx -y -p typescript@5.6.3 tsc --strict --noEmit --target es2020 protocol.ts fixtures.check.ts
+
+  companion-ts:
+    # The TypeScript companion client: type-check and unit tests (no network).
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: typescript/companion
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm run check
+      - run: npm test
