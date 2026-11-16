@@ -58,6 +58,8 @@ pub mod triggers {
     pub const HOLD_END: &str = "hold_end";
     /// A slider moved: `inputs.value` (absolute) and/or `inputs.delta`.
     pub const ADJUST: &str = "adjust";
+
+    pub const ALL: &[&str] = &[PRESS, HOLD_START, HOLD_END, ADJUST];
 }
 
 /// Values of [`HostMsg::Request`] `method`.
@@ -66,13 +68,20 @@ pub mod requests {
     pub const QUERY: &str = "query";
     /// `params: {instance_id, action_id, inputs}`; the plugin answers with a dynamic wheel's buttons.
     pub const WHEEL: &str = "wheel";
+
+    pub const ALL: &[&str] = &[QUERY, WHEEL];
 }
 
 /// Values of [`PluginMsg::HostCall`] `method`.
 pub mod host_calls {
     /// `params: {keys}`. Last resort: plugins should drive apps through their APIs (Rule 1).
     pub const SEND_KEYS: &str = "send_keys";
+
+    pub const ALL: &[&str] = &[SEND_KEYS];
 }
+
+#[cfg(feature = "schema")]
+pub mod generate;
 
 /// A `match` filter: the inputs an instance must hold to receive a frame.
 pub type Match = Map<String, Value>;
@@ -87,14 +96,19 @@ pub enum HostMsg {
     /// Always the first line.
     Hello(Hello),
     /// The plugin's placed instances, sent after `ready` and whenever they change.
-    Sync { instances: Vec<Instance> },
+    Sync {
+        /// Every placed instance of this plugin's actions; replaces the previous list.
+        instances: Vec<Instance>,
+    },
     /// Run one instance. The plugin answers `ack` at once and `done` when the handler returns.
     Invoke(Invoke),
     /// Ask the plugin for data; answered by a `result` with the same `id`.
     Request {
+        /// Echoed by the answering `result`.
         id: String,
         /// A [`requests`] value.
         method: String,
+        /// Method-specific arguments.
         #[serde(default)]
         params: Value,
     },
@@ -102,6 +116,7 @@ pub enum HostMsg {
     Event {
         /// An [`events`] value.
         event: String,
+        /// Event-specific data.
         #[serde(default)]
         payload: Value,
     },
@@ -115,6 +130,7 @@ pub enum HostMsg {
     Unknown,
 }
 
+/// The body of `hello`: who the plugin is and what the host can do.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct Hello {
@@ -124,6 +140,8 @@ pub struct Hello {
     pub plugin_id: String,
     /// A folder the plugin owns for its settings and caches.
     pub data_dir: String,
+    /// KnobDeck's version, for logs and bug reports. Check `features`, not this, before using
+    /// optional behaviour.
     pub host_version: String,
     /// The [`features`] this host has.
     #[serde(default)]
@@ -144,22 +162,28 @@ impl Hello {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct Instance {
+    /// Stable for as long as the action stays where the user put it.
     pub instance_id: String,
+    /// The full action id (`<plugin>-<action>-<hash>`).
     pub action_id: String,
     /// The values the user set in the action's setup form.
     #[serde(default)]
     pub inputs: Value,
 }
 
+/// The body of `invoke`: run one placed instance.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct Invoke {
+    /// Echoed by `ack` and `done`.
     pub id: String,
     /// For a dynamic-wheel child: `"<wheel instance>::<child_id>"`.
     pub instance_id: String,
+    /// The full action id.
     pub action_id: String,
     /// A [`triggers`] value.
     pub trigger: String,
+    /// The instance's inputs; for `adjust`, plus `value` (absolute) and/or `delta`.
     #[serde(default)]
     pub inputs: Value,
     /// Set when a dynamic wheel's child button was pressed.
@@ -171,7 +195,9 @@ pub struct Invoke {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct CallResult {
+    /// The `id` of the `request` or `host_call` this answers.
     pub id: String,
+    /// Whether it worked: then `value` is set, else `error`.
     pub ok: bool,
     /// Present when `ok`. May be `null`, which is kept apart from "absent".
     #[serde(default, deserialize_with = "present", skip_serializing_if = "Option::is_none")]
@@ -223,9 +249,15 @@ pub enum PluginMsg {
         done: bool,
     },
     /// An `invoke` arrived (liveness).
-    Ack { id: String },
+    Ack {
+        /// The invoke's `id`.
+        id: String,
+    },
     /// An `invoke`'s handler returned, so its effects have landed.
-    Done { id: String },
+    Done {
+        /// The invoke's `id`.
+        id: String,
+    },
     /// State and/or a temporary label/icon for one instance, or for every instance of an action.
     State(StateUpdate),
     /// A failure for `instance_id`, else the invoke `id`'s instance, else every instance of
@@ -235,16 +267,22 @@ pub enum PluginMsg {
     Result(CallResult),
     /// Ask the host to do something; answered by a `result` with the same `id`.
     HostCall {
+        /// Echoed by the host's `result`.
         id: String,
         /// A [`host_calls`] value.
         method: String,
+        /// Method-specific arguments.
         #[serde(default)]
         params: Value,
     },
     /// Replace the plugin's event subscriptions.
-    Subscribe { events: Vec<String> },
+    Subscribe {
+        /// [`events`] values; an empty list unsubscribes from everything.
+        events: Vec<String>,
+    },
     /// The plugin's setup is no longer valid (an expired token…); the host asks the user again.
     SetupRequired {
+        /// Shown to the user.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         reason: Option<String>,
     },
@@ -259,10 +297,14 @@ pub enum PluginMsg {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct Target {
+    /// One instance. Wins over `action_id`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub instance_id: Option<String>,
+    /// Every instance of this action.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub action_id: Option<String>,
+    /// With `action_id`: only instances whose inputs hold these values (compared as strings; a
+    /// missing input counts as `""`). Needs the `state_match` feature.
     #[serde(default, rename = "match", skip_serializing_if = "Option::is_none")]
     pub filter: Option<Match>,
 }
@@ -280,6 +322,7 @@ impl Target {
     }
 }
 
+/// The body of a `state` frame: a new state and/or a temporary label or icon, and who gets it.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct StateUpdate {
@@ -288,12 +331,15 @@ pub struct StateUpdate {
     /// The new state. A frame without it leaves state and error alone.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub state: Option<String>,
+    /// A temporary label shown instead of the configured one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
+    /// A temporary icon name shown instead of the configured one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub icon: Option<String>,
 }
 
+/// The body of an `error` frame: what failed, and who gets it.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(JsonSchema))]
 pub struct ErrorReport {
@@ -302,6 +348,7 @@ pub struct ErrorReport {
     /// The invoke this error ends, when there is one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
+    /// Shown to the user on the action.
     pub message: String,
 }
 

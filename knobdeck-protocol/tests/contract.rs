@@ -81,23 +81,21 @@ fn protocol_range() {
     assert_eq!(fixtures::frames(fixtures::V2, "to_plugin")[0]["protocol"], PROTOCOL);
 }
 
-/// `schema/*.json` are generated. Rewrite them with `KNOBDECK_BLESS=1 cargo test -p knobdeck-protocol --features schema`.
+/// `schema/`, `typescript/` and `REFERENCE.md` are generated. Rewrite them with
+/// `KNOBDECK_BLESS=1 cargo test -p knobdeck-protocol --features schema`.
 #[cfg(feature = "schema")]
 #[test]
-fn generated_schemas_are_current() {
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("schema");
+fn generated_files_are_current() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let bless = std::env::var_os("KNOBDECK_BLESS").is_some();
     let mut stale = vec![];
-    for (name, schema) in [
-        ("host-to-plugin.json", schemars::schema_for!(HostMsg)),
-        ("plugin-to-host.json", schemars::schema_for!(PluginMsg)),
-    ] {
-        let text = serde_json::to_string_pretty(&schema).unwrap() + "\n";
-        let path = dir.join(name);
+    for (rel, text) in knobdeck_protocol::generate::all() {
+        let path = root.join(&rel);
         if bless {
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
             std::fs::write(&path, &text).unwrap();
         } else if std::fs::read_to_string(&path).ok().as_deref() != Some(text.as_str()) {
-            stale.push(name);
+            stale.push(rel);
         }
     }
     assert!(stale.is_empty(), "{stale:?} out of date: run KNOBDECK_BLESS=1 cargo test -p knobdeck-protocol --features schema");

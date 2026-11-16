@@ -1,7 +1,6 @@
 name: CI
 on:
   push:
-    branches: [master]
   pull_request:
   workflow_dispatch:
 
@@ -26,3 +25,15 @@ jobs:
         run: cargo clippy -p knobdeck-protocol --all-features --all-targets -- -D warnings
       - name: CLI builds
         run: cargo build --bin knobdeck-plugin
+
+  typescript:
+    # The generated TypeScript types must compile and accept every pinned fixture frame.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: tsc --strict on the generated types
+        working-directory: knobdeck-protocol/typescript
+        run: npx -y -p typescript@5.6.3 tsc --strict --noEmit --target es2020 protocol.ts fixtures.check.ts

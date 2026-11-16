@@ -26,6 +26,7 @@
           "const": "sync"
         },
         "instances": {
+          "description": "Every placed instance of this plugin's actions; replaces the previous list.",
           "type": "array",
           "items": {
             "$ref": "#/$defs/Instance"
@@ -60,6 +61,7 @@
           "const": "request"
         },
         "id": {
+          "description": "Echoed by the answering `result`.",
           "type": "string"
         },
         "method": {
@@ -67,6 +69,7 @@
           "type": "string"
         },
         "params": {
+          "description": "Method-specific arguments.",
           "default": null
         }
       },
@@ -89,6 +92,7 @@
           "type": "string"
         },
         "payload": {
+          "description": "Event-specific data.",
           "default": null
         }
       },
@@ -127,6 +131,7 @@
   ],
   "$defs": {
     "Hello": {
+      "description": "The body of `hello`: who the plugin is and what the host can do.",
       "type": "object",
       "properties": {
         "protocol": {
@@ -144,6 +149,7 @@
           "type": "string"
         },
         "host_version": {
+          "description": "KnobDeck's version, for logs and bug reports. Check `features`, not this, before using\noptional behaviour.",
           "type": "string"
         },
         "features": {
@@ -176,9 +182,11 @@
       "type": "object",
       "properties": {
         "instance_id": {
+          "description": "Stable for as long as the action stays where the user put it.",
           "type": "string"
         },
         "action_id": {
+          "description": "The full action id (`<plugin>-<action>-<hash>`).",
           "type": "string"
         },
         "inputs": {
@@ -192,9 +200,11 @@
       ]
     },
     "Invoke": {
+      "description": "The body of `invoke`: run one placed instance.",
       "type": "object",
       "properties": {
         "id": {
+          "description": "Echoed by `ack` and `done`.",
           "type": "string"
         },
         "instance_id": {
@@ -202,6 +212,7 @@
           "type": "string"
         },
         "action_id": {
+          "description": "The full action id.",
           "type": "string"
         },
         "trigger": {
@@ -209,6 +220,7 @@
           "type": "string"
         },
         "inputs": {
+          "description": "The instance's inputs; for `adjust`, plus `value` (absolute) and/or `delta`.",
           "default": null
         },
         "child_id": {
@@ -231,9 +243,11 @@
       "type": "object",
       "properties": {
         "id": {
+          "description": "The `id` of the `request` or `host_call` this answers.",
           "type": "string"
         },
         "ok": {
+          "description": "Whether it worked: then `value` is set, else `error`.",
           "type": "boolean"
         },
         "value": {

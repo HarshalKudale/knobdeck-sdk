@@ -45,6 +45,7 @@
           "const": "ack"
         },
         "id": {
+          "description": "The invoke's `id`.",
           "type": "string"
         }
       },
@@ -62,6 +63,7 @@
           "const": "done"
         },
         "id": {
+          "description": "The invoke's `id`.",
           "type": "string"
         }
       },
@@ -121,6 +123,7 @@
           "const": "host_call"
         },
         "id": {
+          "description": "Echoed by the host's `result`.",
           "type": "string"
         },
         "method": {
@@ -128,6 +131,7 @@
           "type": "string"
         },
         "params": {
+          "description": "Method-specific arguments.",
           "default": null
         }
       },
@@ -146,6 +150,7 @@
           "const": "subscribe"
         },
         "events": {
+          "description": "[`events`] values; an empty list unsubscribes from everything.",
           "type": "array",
           "items": {
             "type": "string"
@@ -166,6 +171,7 @@
           "const": "setup_required"
         },
         "reason": {
+          "description": "Shown to the user.",
           "type": [
             "string",
             "null"
@@ -179,22 +185,25 @@
   ],
   "$defs": {
     "StateUpdate": {
-      "description": "Who a `state` or `error` frame is for: one instance, or every instance of an action\n(narrowed by `match` when the host has [`features::STATE_MATCH`]).",
+      "description": "The body of a `state` frame: a new state and/or a temporary label or icon, and who gets it.",
       "type": "object",
       "properties": {
         "instance_id": {
+          "description": "One instance. Wins over `action_id`.",
           "type": [
             "string",
             "null"
           ]
         },
         "action_id": {
+          "description": "Every instance of this action.",
           "type": [
             "string",
             "null"
           ]
         },
         "match": {
+          "description": "With `action_id`: only instances whose inputs hold these values (compared as strings; a\nmissing input counts as `\"\"`). Needs the `state_match` feature.",
           "type": [
             "object",
             "null"
@@ -209,12 +218,14 @@
           ]
         },
         "label": {
+          "description": "A temporary label shown instead of the configured one.",
           "type": [
             "string",
             "null"
           ]
         },
         "icon": {
+          "description": "A temporary icon name shown instead of the configured one.",
           "type": [
             "string",
             "null"
@@ -223,22 +234,25 @@
       }
     },
     "ErrorReport": {
-      "description": "Who a `state` or `error` frame is for: one instance, or every instance of an action\n(narrowed by `match` when the host has [`features::STATE_MATCH`]).",
+      "description": "The body of an `error` frame: what failed, and who gets it.",
       "type": "object",
       "properties": {
         "instance_id": {
+          "description": "One instance. Wins over `action_id`.",
           "type": [
             "string",
             "null"
           ]
         },
         "action_id": {
+          "description": "Every instance of this action.",
           "type": [
             "string",
             "null"
           ]
         },
         "match": {
+          "description": "With `action_id`: only instances whose inputs hold these values (compared as strings; a\nmissing input counts as `\"\"`). Needs the `state_match` feature.",
           "type": [
             "object",
             "null"
@@ -253,6 +267,7 @@
           ]
         },
         "message": {
+          "description": "Shown to the user on the action.",
           "type": "string"
         }
       },
@@ -265,9 +280,11 @@
       "type": "object",
       "properties": {
         "id": {
+          "description": "The `id` of the `request` or `host_call` this answers.",
           "type": "string"
         },
         "ok": {
+          "description": "Whether it worked: then `value` is set, else `error`.",
           "type": "boolean"
         },
         "value": {

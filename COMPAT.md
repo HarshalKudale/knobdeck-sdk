@@ -62,7 +62,9 @@ additive and don't count toward the protocol number. New host calls and events f
 `knobdeck-protocol` defines every frame: `HostMsg` (host → plugin) and `PluginMsg` (plugin → host),
 plus the constants both sides need (`PROTOCOL`, `MIN_PROTOCOL`, `features`, `events`, triggers, request
 and host-call methods). The host and this SDK both use it, so a change there changes both at once.
-`knobdeck-protocol/schema/*.json` is the JSON Schema generated from it, for authors in other languages.
+Generated from it and checked in: `knobdeck-protocol/schema/*.json` (JSON Schema), `typescript/protocol.ts`
+(TypeScript types and constants) and `REFERENCE.md` (the written spec). CI fails when one is stale, and
+`tsc --strict` checks every fixture frame against the TypeScript types.
 
 `knobdeck-protocol/fixtures/protocol-v2.jsonl` holds example frames for every message type, both
 directions (`to_plugin`, `to_host`). `cargo test --workspace --all-features` checks that:
@@ -70,7 +72,7 @@ directions (`to_plugin`, `to_host`). `cargo test --workspace --all-features` che
 - every fixture frame parses into the typed messages and is written back **byte for byte**;
 - every frame this SDK emits has a known type, only known fields, and matching JSON types;
 - the plugin survives every host frame in the file;
-- the generated schema files are current.
+- the generated schema, TypeScript and reference files are current.
 
 So a rename, a new field or a type change fails the tests until the fixture (and the schema, with
 `KNOBDECK_BLESS=1 cargo test -p knobdeck-protocol --features schema`) is updated in the same change,
