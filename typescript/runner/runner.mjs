@@ -97,5 +97,12 @@ if (process.argv.includes("--exit-with-stdin")) {
   process.stdin.resume();
 }
 
-if (!address.startsWith("\\\\") && existsSync(address)) unlinkSync(address);
+if (!address.startsWith("\\\\")) {
+  if (existsSync(address)) unlinkSync(address);
+  process.on("exit", () => {
+    try {
+      unlinkSync(address);
+    } catch {}
+  });
+}
 createServer(serve).listen(address, () => log(`listening on ${address}`));
