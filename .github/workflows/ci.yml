@@ -1,15 +1,28 @@
 name: CI
 on:
+  push:
+    branches: [master]
   pull_request:
   workflow_dispatch:
 
 jobs:
   test:
-    # The protocol fixtures (COMPAT.md) are OS-independent; one runner catches a shape change.
-    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        # knobdeck-os has a different implementation per OS; the protocol contract runs on all three.
+        os: [ubuntu-24.04, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
       - uses: Swatinem/rust-cache@v2
-      - name: cargo test (SDK, all features)
-        run: cargo test --all-features
+      - name: cargo test (workspace, all features)
+        run: cargo test --workspace --all-features
+      # The contract crate stays warning-free; the rest of the workspace has older warnings.
+      - name: cargo clippy (knobdeck-protocol)
+        run: cargo clippy -p knobdeck-protocol --all-features --all-targets -- -D warnings
+      - name: CLI builds
+        run: cargo build --bin knobdeck-plugin

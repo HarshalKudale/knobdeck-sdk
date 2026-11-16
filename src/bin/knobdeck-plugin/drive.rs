@@ -2,6 +2,7 @@
 //! KnobDeck. hello → ready → sync (one instance per action) → steps → shutdown. Every message the
 //! plugin sends is printed; host calls are answered with harmless stubs.
 
+use knobdeck_sdk::protocol::{features, host_calls, CallResult, Hello, HostMsg, Instance, PROTOCOL};
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -110,13 +111,13 @@ impl Host {
     /// worth noticing: the action fell back to keystrokes. Anything else is refused as KnobDeck does.
     fn answer(&mut self, msg: &Value) {
         let method = msg["method"].as_str().unwrap_or("");
-        let id = msg["id"].clone();
-        if method == "send_keys" {
+        let id = msg["id"].as_str().unwrap_or_default().to_string();
+        if method == host_calls::SEND_KEYS {
             println!("  ! send_keys {}: this action types a shortcut; prefer an API (see the skill)", msg["params"]);
-            self.send(json!({"type": "result", "id": id, "ok": true, "value": null}));
+            self.send(frame(HostMsg::Result(CallResult::ok(id, Value::Null))));
         } else {
             println!("  ! unknown host call {method:?} (KnobDeck only takes send_keys)");
-            self.send(json!({"type": "result", "id": id, "ok": false, "error": format!("unknown host call method \"{method}\"")}));
+            self.send(frame(HostMsg::Result(CallResult::err(id, format!("unknown host call method \"{method}\"")))));
         }
     }
 }
@@ -199,13 +200,24 @@ pub fn drive(steps_file: Option<&str>) -> Result<(), String> {
     });
     let mut host = Host { stdin, lines, next_id: 0, bad_lines: 0, errors: 0 };
 
-    host.send(json!({"type": "hello", "protocol": 2, "plugin_id": id, "data_dir": data, "host_version": "knobdeck-plugin drive", "host_pid": std::process::id()}));
+    // Announce what a current KnobDeck announces, so the plugin takes the same paths it will in the app.
+    host.send(frame(HostMsg::Hello(Hello {
+        protocol: PROTOCOL,
+        plugin_id: id.clone(),
+        data_dir: data.to_string_lossy().into_owned(),
+        host_version: "knobdeck-plugin drive".into(),
+        features: features::ALL.iter().map(|f| f.to_string()).collect(),
+        host_pid: Some(std::process::id()),
+    })));
     if host.pump(10_000, |m| m["type"] == "ready").is_none() {
         let _ = child.kill();
         return Err("the plugin never sent `ready` (does main() end with .run()?)".into());
     }
-    let instances: Vec<Value> = table.iter().map(|(s, f, _)| json!({"instance_id": format!("drive-{s}"), "action_id": f, "inputs": {}})).collect();
-    host.send(json!({"type": "sync", "instances": instances}));
+    let instances = table
+        .iter()
+        .map(|(s, f, _)| Instance { instance_id: format!("drive-{s}"), action_id: f.clone(), inputs: json!({}) })
+        .collect();
+    host.send(frame(HostMsg::Sync { instances }));
     host.pump(1500, |_| false);
 
     let mut bad_steps = 0;
@@ -236,7 +248,7 @@ pub fn drive(steps_file: Option<&str>) -> Result<(), String> {
         }
     }
 
-    host.send(json!({"type": "shutdown"}));
+    host.send(frame(HostMsg::Shutdown));
     drop(host.stdin);
     let deadline = Instant::now() + Duration::from_secs(3);
     let mut exited = false;
@@ -266,4 +278,9 @@ pub fn drive(steps_file: Option<&str>) -> Result<(), String> {
         return Err(format!("{bad_steps} step(s) in the steps file could not run"));
     }
     Ok(())
+}
+
+/// A typed host frame as the JSON `Host::send` writes.
+fn frame(msg: HostMsg) -> Value {
+    serde_json::to_value(msg).expect("protocol frames serialize")
 }

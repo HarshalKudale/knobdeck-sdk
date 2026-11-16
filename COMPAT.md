@@ -2,7 +2,8 @@
 
 What may change in KnobDeck's plugin protocol, package format and SDK without breaking plugins that
 already exist. Written 2026-11-16 for protocol v2. The frames themselves are pinned in
-[`tests/fixtures/protocol-v2.jsonl`](tests/fixtures/protocol-v2.jsonl).
+[`knobdeck-protocol/fixtures/protocol-v2.jsonl`](knobdeck-protocol/fixtures/protocol-v2.jsonl), and
+every frame is defined once, as a Rust type, in the [`knobdeck-protocol`](knobdeck-protocol) crate.
 
 ## The protocol number
 
@@ -56,22 +57,26 @@ when present. Today: `state_match` (a `state`/`error` frame may carry `match`). 
 feature checks the list and falls back when it is absent; the SDK does this for you. Features are
 additive and don't count toward the protocol number. New host calls and events follow the same rule.
 
-## The fixtures
+## The contract crate and the fixtures
 
-`tests/fixtures/protocol-v2.jsonl` holds example frames for every message type, both directions
-(`to_plugin`, `to_host`). `cargo test` checks that:
+`knobdeck-protocol` defines every frame: `HostMsg` (host → plugin) and `PluginMsg` (plugin → host),
+plus the constants both sides need (`PROTOCOL`, `MIN_PROTOCOL`, `features`, `events`, triggers, request
+and host-call methods). The host and this SDK both use it, so a change there changes both at once.
+`knobdeck-protocol/schema/*.json` is the JSON Schema generated from it, for authors in other languages.
 
+`knobdeck-protocol/fixtures/protocol-v2.jsonl` holds example frames for every message type, both
+directions (`to_plugin`, `to_host`). `cargo test --workspace --all-features` checks that:
+
+- every fixture frame parses into the typed messages and is written back **byte for byte**;
 - every frame this SDK emits has a known type, only known fields, and matching JSON types;
 - the plugin survives every host frame in the file;
-- the file itself is well formed.
+- the generated schema files are current.
 
-So a rename, a new field or a type change fails the tests until the fixture is updated in the same
-change, which makes the change visible in review. **Adding a field means adding it to the fixture** and
-a line to the SDK release notes. Changing or removing a field means a new protocol number (above).
-
-The host repo keeps a byte-identical copy (`app/src-tauri/tests/fixtures/protocol-v2.jsonl`) and its
-tests fail if the two differ while the repos sit side by side. This duplication ends when the shared
-`knobdeck-protocol` crate lands (see `Knobdeck/PLATFORM_PLAN.md`, workstream B).
+So a rename, a new field or a type change fails the tests until the fixture (and the schema, with
+`KNOBDECK_BLESS=1 cargo test -p knobdeck-protocol --features schema`) is updated in the same change,
+which makes the change visible in review. **Adding a field means adding it to the fixture** and a line
+to the SDK release notes. Changing or removing a field means a new protocol number (above). Fields
+added later are `Option`/`#[serde(default)]`, so a frame from an older peer still parses.
 
 ## Other versioned surfaces
 

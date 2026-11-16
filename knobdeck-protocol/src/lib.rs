@@ -1,0 +1,324 @@
+//! The KnobDeck plugin protocol, defined once.
+//!
+//! A plugin is a process the host talks to over stdio, one JSON object per line. [`HostMsg`] is
+//! every frame the host writes to the plugin's stdin; [`PluginMsg`] is every frame the plugin
+//! writes to its stdout. The host and the Rust SDK both use these types, and the JSON Schema in
+//! `schema/` (and the TypeScript types made from it) are generated from them, so there is one
+//! source of truth for the wire format.
+//!
+//! What may change without breaking plugins is in `COMPAT.md` at the root of the SDK repo. In
+//! short: fields are only ever added, as optional; receivers ignore unknown fields and frame types
+//! (both enums end in an `Unknown` catch-all); behaviour only some hosts have is announced in
+//! [`Hello::features`]. The example frames in [`fixtures::V2`] pin the format: the tests here
+//! parse every one and write it back byte for byte.
+
+use serde::{Deserialize, Deserializer, Serialize};
+use serde_json::{Map, Value};
+
+#[cfg(feature = "schema")]
+use schemars::JsonSchema;
+
+/// The newest protocol number. It names a major version and moves only for a break.
+pub const PROTOCOL: u32 = 2;
+
+/// The oldest protocol number a host still loads. It moves up only after a public deprecation
+/// notice of at least 12 months (`COMPAT.md`).
+pub const MIN_PROTOCOL: u32 = 2;
+
+const _: () = assert!(MIN_PROTOCOL <= PROTOCOL);
+
+/// Whether a host speaking this crate's protocol can run a plugin built for protocol `p`.
+pub fn protocol_supported(p: u32) -> bool {
+    (MIN_PROTOCOL..=PROTOCOL).contains(&p)
+}
+
+/// Optional host behaviour, listed in [`Hello::features`]. A plugin uses one only when the host
+/// lists it. Adding a feature is never a break.
+pub mod features {
+    /// A `state`/`error` frame sent to an `action_id` may carry `match`; only instances whose
+    /// inputs hold those values get it. Without it, the SDK sends one frame per instance.
+    pub const STATE_MATCH: &str = "state_match";
+
+    /// Every feature defined by this version of the protocol.
+    pub const ALL: &[&str] = &[STATE_MATCH];
+}
+
+/// Host events a plugin can subscribe to (`ready.subscribe`, `subscribe`).
+pub mod events {
+    /// The foreground app changed. Payload: `{"app": "<process or bundle name>"}`.
+    pub const FOCUS_CHANGED: &str = "focus_changed";
+
+    pub const ALL: &[&str] = &[FOCUS_CHANGED];
+}
+
+/// Values of [`Invoke::trigger`].
+pub mod triggers {
+    pub const PRESS: &str = "press";
+    pub const HOLD_START: &str = "hold_start";
+    pub const HOLD_END: &str = "hold_end";
+    /// A slider moved: `inputs.value` (absolute) and/or `inputs.delta`.
+    pub const ADJUST: &str = "adjust";
+}
+
+/// Values of [`HostMsg::Request`] `method`.
+pub mod requests {
+    /// `params: {query_id, inputs}`; the plugin answers with a list for a setup-form field.
+    pub const QUERY: &str = "query";
+    /// `params: {instance_id, action_id, inputs}`; the plugin answers with a dynamic wheel's buttons.
+    pub const WHEEL: &str = "wheel";
+}
+
+/// Values of [`PluginMsg::HostCall`] `method`.
+pub mod host_calls {
+    /// `params: {keys}`. Last resort: plugins should drive apps through their APIs (Rule 1).
+    pub const SEND_KEYS: &str = "send_keys";
+}
+
+/// A `match` filter: the inputs an instance must hold to receive a frame.
+pub type Match = Map<String, Value>;
+
+// ── Host → plugin ────────────────────────────────────────────────────────────
+
+/// A frame the host writes to the plugin's stdin.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum HostMsg {
+    /// Always the first line.
+    Hello(Hello),
+    /// The plugin's placed instances, sent after `ready` and whenever they change.
+    Sync { instances: Vec<Instance> },
+    /// Run one instance. The plugin answers `ack` at once and `done` when the handler returns.
+    Invoke(Invoke),
+    /// Ask the plugin for data; answered by a `result` with the same `id`.
+    Request {
+        id: String,
+        /// A [`requests`] value.
+        method: String,
+        #[serde(default)]
+        params: Value,
+    },
+    /// A host event the plugin subscribed to.
+    Event {
+        /// An [`events`] value.
+        event: String,
+        #[serde(default)]
+        payload: Value,
+    },
+    /// The answer to a plugin's `host_call`.
+    Result(CallResult),
+    /// Stop now. The host kills the process if it is still alive two seconds later.
+    Shutdown,
+    /// A frame type this version doesn't know. Receivers ignore it. Never sent.
+    #[serde(other)]
+    #[cfg_attr(feature = "schema", schemars(skip))]
+    Unknown,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
+pub struct Hello {
+    /// The newest protocol number the host speaks.
+    pub protocol: u32,
+    /// The plugin's id. Action ids are made from it (`make_full_id` in the SDK).
+    pub plugin_id: String,
+    /// A folder the plugin owns for its settings and caches.
+    pub data_dir: String,
+    pub host_version: String,
+    /// The [`features`] this host has.
+    #[serde(default)]
+    pub features: Vec<String>,
+    /// The host's process id, so a plugin can leave KnobDeck's own windows out of "the target
+    /// window".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_pid: Option<u32>,
+}
+
+impl Hello {
+    pub fn has_feature(&self, feature: &str) -> bool {
+        self.features.iter().any(|f| f == feature)
+    }
+}
+
+/// One placed instance of an action.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
+pub struct Instance {
+    pub instance_id: String,
+    pub action_id: String,
+    /// The values the user set in the action's setup form.
+    #[serde(default)]
+    pub inputs: Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
+pub struct Invoke {
+    pub id: String,
+    /// For a dynamic-wheel child: `"<wheel instance>::<child_id>"`.
+    pub instance_id: String,
+    pub action_id: String,
+    /// A [`triggers`] value.
+    pub trigger: String,
+    #[serde(default)]
+    pub inputs: Value,
+    /// Set when a dynamic wheel's child button was pressed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub child_id: Option<String>,
+}
+
+/// `result`: the answer to a `request` (plugin → host) or a `host_call` (host → plugin).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
+pub struct CallResult {
+    pub id: String,
+    pub ok: bool,
+    /// Present when `ok`. May be `null`, which is kept apart from "absent".
+    #[serde(default, deserialize_with = "present", skip_serializing_if = "Option::is_none")]
+    pub value: Option<Value>,
+    /// Present when not `ok`. Human-readable; not part of the contract.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+impl CallResult {
+    pub fn ok(id: impl Into<String>, value: Value) -> Self {
+        CallResult { id: id.into(), ok: true, value: Some(value), error: None }
+    }
+    pub fn err(id: impl Into<String>, error: impl Into<String>) -> Self {
+        CallResult { id: id.into(), ok: false, value: None, error: Some(error.into()) }
+    }
+    /// The value, or the error.
+    pub fn into_result(self) -> Result<Value, String> {
+        if self.ok {
+            Ok(self.value.unwrap_or(Value::Null))
+        } else {
+            Err(self.error.unwrap_or_else(|| "call failed".into()))
+        }
+    }
+}
+
+/// `Some` whenever the key is present, `null` included (plain `Option<Value>` reads `null` as
+/// `None`, which would drop it when the frame is written back).
+fn present<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Value>, D::Error> {
+    Value::deserialize(d).map(Some)
+}
+
+// ── Plugin → host ────────────────────────────────────────────────────────────
+
+/// A frame the plugin writes to its stdout. Nothing else may go to stdout; logs go to stderr.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum PluginMsg {
+    /// The first line, after `hello`.
+    Ready {
+        /// The protocol the plugin was built for.
+        protocol: u32,
+        /// [`events`] to receive from the start.
+        #[serde(default)]
+        subscribe: Vec<String>,
+        /// The plugin sends `done` after each invoke's handler returns. Workflows wait for it.
+        #[serde(default)]
+        done: bool,
+    },
+    /// An `invoke` arrived (liveness).
+    Ack { id: String },
+    /// An `invoke`'s handler returned, so its effects have landed.
+    Done { id: String },
+    /// State and/or a temporary label/icon for one instance, or for every instance of an action.
+    State(StateUpdate),
+    /// A failure for `instance_id`, else the invoke `id`'s instance, else every instance of
+    /// `action_id`.
+    Error(ErrorReport),
+    /// The answer to a host `request`.
+    Result(CallResult),
+    /// Ask the host to do something; answered by a `result` with the same `id`.
+    HostCall {
+        id: String,
+        /// A [`host_calls`] value.
+        method: String,
+        #[serde(default)]
+        params: Value,
+    },
+    /// Replace the plugin's event subscriptions.
+    Subscribe { events: Vec<String> },
+    /// The plugin's setup is no longer valid (an expired token…); the host asks the user again.
+    SetupRequired {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reason: Option<String>,
+    },
+    /// A frame type this version doesn't know. Receivers ignore it. Never sent.
+    #[serde(other)]
+    #[cfg_attr(feature = "schema", schemars(skip))]
+    Unknown,
+}
+
+/// Who a `state` or `error` frame is for: one instance, or every instance of an action
+/// (narrowed by `match` when the host has [`features::STATE_MATCH`]).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
+pub struct Target {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instance_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub action_id: Option<String>,
+    #[serde(default, rename = "match", skip_serializing_if = "Option::is_none")]
+    pub filter: Option<Match>,
+}
+
+impl Target {
+    pub fn instance(id: impl Into<String>) -> Self {
+        Target { instance_id: Some(id.into()), ..Default::default() }
+    }
+    pub fn action(id: impl Into<String>) -> Self {
+        Target { action_id: Some(id.into()), ..Default::default() }
+    }
+    pub fn matching(mut self, filter: Match) -> Self {
+        self.filter = Some(filter);
+        self
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
+pub struct StateUpdate {
+    #[serde(flatten)]
+    pub target: Target,
+    /// The new state. A frame without it leaves state and error alone.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
+pub struct ErrorReport {
+    #[serde(flatten)]
+    pub target: Target,
+    /// The invoke this error ends, when there is one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    pub message: String,
+}
+
+/// The pinned example frames (`fixtures/`), one JSON object per line:
+/// `{"dir": "to_plugin" | "to_host", "frame": {…}}`.
+pub mod fixtures {
+    /// Protocol 2.
+    pub const V2: &str = include_str!("../fixtures/protocol-v2.jsonl");
+
+    /// The frames of `fixture` going in `dir` (`"to_plugin"` or `"to_host"`), in file order.
+    pub fn frames(fixture: &str, dir: &str) -> Vec<serde_json::Value> {
+        fixture
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .map(|l| serde_json::from_str::<serde_json::Value>(l).expect("fixture line is JSON"))
+            .filter(|e| e["dir"] == dir)
+            .map(|e| e["frame"].clone())
+            .collect()
+    }
+}

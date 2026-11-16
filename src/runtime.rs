@@ -16,6 +16,7 @@ use crate::ctx::{Ctx, Event, InitialCtx, OpenCtx, QueryCtx};
 use crate::error::{Error, Result};
 use crate::log::log;
 use crate::plugin::{Action, Kind, LiveFn, Plugin};
+use knobdeck_protocol::{features, CallResult, PluginMsg, StateUpdate, Target};
 use serde_json::{json, Map, Value};
 use std::collections::HashMap;
 use std::io::{BufRead, Write};
@@ -26,12 +27,12 @@ use std::sync::mpsc::{channel, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-/// Protocol version this SDK speaks.
-pub const PROTOCOL: u32 = 2;
+/// Protocol version this SDK speaks (from `knobdeck-protocol`).
+pub const PROTOCOL: u32 = knobdeck_protocol::PROTOCOL;
 /// Host feature (listed in `hello.features`): a `state`/`error` frame sent to an
 /// `action_id` may carry `match`, and only instances whose inputs hold those
 /// values get it. Older hosts lack it; the SDK then sends per-instance frames.
-pub const FEATURE_STATE_MATCH: &str = "state_match";
+pub const FEATURE_STATE_MATCH: &str = features::STATE_MATCH;
 const MAX_WHEEL_BUTTONS: usize = 16;
 /// An idle per-instance worker thread exits after this long.
 const WORKER_IDLE: Duration = Duration::from_secs(30);
@@ -62,24 +63,8 @@ impl Visual {
         self
     }
 
-    fn frame(&self, target: (&str, &str)) -> Value {
-        let mut m = Map::new();
-        m.insert("type".into(), "state".into());
-        m.insert(target.0.into(), target.1.into());
-        self.fill(&mut m);
-        Value::Object(m)
-    }
-
-    fn fill(&self, m: &mut Map<String, Value>) {
-        if let Some(v) = &self.state {
-            m.insert("state".into(), v.clone().into());
-        }
-        if let Some(v) = &self.label {
-            m.insert("label".into(), v.clone().into());
-        }
-        if let Some(v) = &self.icon {
-            m.insert("icon".into(), v.clone().into());
-        }
+    fn frame(self, target: Target) -> PluginMsg {
+        PluginMsg::State(StateUpdate { target, state: self.state, label: self.label, icon: self.icon })
     }
 }
 
@@ -145,22 +130,25 @@ impl Runtime {
         &self.0.data_dir
     }
 
-    pub(crate) fn send(&self, obj: Value) {
+    /// Write one frame to stdout. Every frame the plugin sends is a typed `PluginMsg`.
+    pub(crate) fn send(&self, msg: PluginMsg) {
         {
+            let line = serde_json::to_string(&msg).expect("protocol frames serialize");
             let mut out = self.0.out.lock().unwrap();
-            if let Err(e) = writeln!(out, "{obj}").and_then(|_| out.flush()) {
+            if let Err(e) = writeln!(out, "{line}").and_then(|_| out.flush()) {
                 log(format!("send error: {e}"));
             }
         }
         // Only frames that carry a `state` update the local mirror.
-        if obj["type"] == "state" {
-            if let Some(s) = obj["state"].as_str() {
+        if let PluginMsg::State(StateUpdate { target, state: Some(s), .. }) = &msg {
+            {
+                let s = s.as_str();
                 let mut st = self.0.state.lock().unwrap();
-                if let Some(iid) = obj["instance_id"].as_str() {
+                if let Some(iid) = target.instance_id.as_deref() {
                     st.insert(iid.into(), s.into());
-                } else if let Some(aid) = obj["action_id"].as_str() {
+                } else if let Some(aid) = target.action_id.as_deref() {
                     let short = self.0.full_to_short.get(aid).map(String::as_str).unwrap_or(aid);
-                    let filter = obj["match"].as_object();
+                    let filter = target.filter.as_ref();
                     let inputs = self.0.inputs_of.lock().unwrap();
                     for (iid, a) in self.0.action_of.lock().unwrap().iter() {
                         let hit = filter.map_or(true, |f| inputs.get(iid).is_some_and(|i| inputs_match(i, f)));
@@ -179,17 +167,17 @@ impl Runtime {
 
     /// Set the state of one instance.
     pub fn set_state(&self, instance_id: &str, value: impl ToString) {
-        self.send(json!({"type": "state", "instance_id": instance_id, "state": value.to_string()}));
+        self.send(Visual::new().state(value).frame(Target::instance(instance_id)));
     }
     /// Fan-out: set the state of ALL instances of an action (short action id).
     pub fn notify(&self, action_id: &str, value: impl ToString) {
-        self.send(json!({"type": "state", "action_id": self.full_id(action_id), "state": value.to_string()}));
+        self.send(Visual::new().state(value).frame(Target::action(self.full_id(action_id))));
     }
     pub fn set_visual(&self, instance_id: &str, patch: Visual) {
-        self.send(patch.frame(("instance_id", instance_id)));
+        self.send(patch.frame(Target::instance(instance_id)));
     }
     pub fn notify_visual(&self, action_id: &str, patch: Visual) {
-        self.send(patch.frame(("action_id", &self.full_id(action_id))));
+        self.send(patch.frame(Target::action(self.full_id(action_id))));
     }
     /// Targeted fan-out: set the state of every instance of an action (short id)
     /// whose inputs hold the values in `filter`, e.g. `json!({"device": id})`.
@@ -202,12 +190,7 @@ impl Runtime {
     pub fn notify_visual_matching(&self, action_id: &str, filter: &Value, patch: Visual) {
         let filter = filter.as_object().cloned().unwrap_or_default();
         if self.0.state_match {
-            let mut m = Map::new();
-            m.insert("type".into(), "state".into());
-            m.insert("action_id".into(), self.full_id(action_id).into());
-            m.insert("match".into(), Value::Object(filter));
-            patch.fill(&mut m);
-            self.send(Value::Object(m));
+            self.send(patch.frame(Target::action(self.full_id(action_id)).matching(filter)));
         } else {
             // An older host would send an unknown `match` to every instance: address each one.
             for iid in self.instances_matching(action_id, &filter) {
@@ -216,7 +199,11 @@ impl Runtime {
         }
     }
     pub fn set_error(&self, instance_id: &str, message: impl ToString) {
-        self.send(json!({"type": "error", "instance_id": instance_id, "message": message.to_string()}));
+        self.send(PluginMsg::Error(knobdeck_protocol::ErrorReport {
+            target: Target::instance(instance_id),
+            id: None,
+            message: message.to_string(),
+        }));
     }
     /// Instance ids of the placed instances of `action_id` (short id) whose inputs hold `filter`.
     pub fn instances_matching(&self, action_id: &str, filter: &Map<String, Value>) -> Vec<String> {
@@ -230,14 +217,14 @@ impl Runtime {
     pub fn subscribe<S: AsRef<str>>(&self, events: &[S]) {
         let names = normalize(events.iter().map(|s| s.as_ref().to_string()));
         if !names.is_empty() {
-            self.send(json!({"type": "subscribe", "events": names}));
+            self.send(PluginMsg::Subscribe { events: names });
         }
     }
     /// Tell the host this plugin needs setup again (expired token, revoked
     /// auth…). The host remembers it, stops the plugin and asks the user to run
     /// setup; `reason` is shown to them.
     pub fn mark_setup_required(&self, reason: impl ToString) {
-        self.send(json!({"type": "setup_required", "reason": reason.to_string()}));
+        self.send(PluginMsg::SetupRequired { reason: Some(reason.to_string()) });
     }
     /// Instance ids of every placed instance of `action_id` (short id) learned from sync.
     pub fn instances_of(&self, action_id: &str) -> Vec<String> {
@@ -264,7 +251,7 @@ impl Runtime {
         let id = format!("host-{}", self.0.next_id.fetch_add(1, Ordering::Relaxed));
         let (tx, rx) = channel();
         self.0.pending.lock().unwrap().insert(id.clone(), tx);
-        self.send(json!({"type": "host_call", "id": id, "method": method, "params": params}));
+        self.send(PluginMsg::HostCall { id: id.clone(), method: method.into(), params });
         match rx.recv_timeout(Duration::from_secs(30)) {
             Ok(Ok(v)) => Ok(v),
             Ok(Err(e)) => Err(Error::Other(e)),
@@ -453,7 +440,7 @@ fn serve(plugin: Plugin) -> ! {
     let wanted = plugin.subscriptions.clone();
     // `done`: this runtime reports each invoke's end, so the host's workflows
     // run the next step only after this one's keys/windows have landed.
-    rt.send(json!({"type": "ready", "protocol": PROTOCOL, "subscribe": normalize(wanted.into_iter()), "done": true}));
+    rt.send(PluginMsg::Ready { protocol: PROTOCOL, subscribe: normalize(wanted.into_iter()), done: true });
     log("ready");
 
     for (short, def) in &plugin.actions {
@@ -613,18 +600,18 @@ fn dispatch(core: &Arc<Core>, msg: Value) {
         "sync" => handle_sync(core, &msg),
         "invoke" => {
             // Ack immediately on the reader thread, before any handler work.
-            core.rt.send(json!({"type": "ack", "id": msg["id"]}));
+            core.rt.send(PluginMsg::Ack { id: id_of(&msg) });
             let key = msg["instance_id"].as_str().unwrap_or("").to_string();
             run_ordered(&core.rt, key, Box::new(move || {
                 // Sent on drop, so a handler that panics still reports its end.
-                let _done = Done(c.rt.clone(), msg["id"].clone());
+                let _done = Done(c.rt.clone(), id_of(&msg));
                 handle_invoke(&c, msg)
             }));
         }
         "request" => match msg["method"].as_str().unwrap_or("") {
             "query" => spawn("query", move || handle_query(&c, &msg)),
             "wheel" => spawn("wheel", move || handle_wheel(&c, &msg)),
-            other => core.rt.send(json!({"type": "result", "id": msg["id"], "ok": false, "error": format!("unknown request method \"{other}\"")})),
+            other => core.rt.send(PluginMsg::Result(CallResult::err(id_of(&msg), format!("unknown request method \"{other}\"")))),
         },
         "event" => handle_event(core, msg),
         "result" => {
@@ -642,11 +629,24 @@ fn dispatch(core: &Arc<Core>, msg: Value) {
 }
 
 /// Sends `done` for an invoke when dropped: its handler has returned.
-struct Done(Runtime, Value);
+struct Done(Runtime, String);
 
 impl Drop for Done {
     fn drop(&mut self) {
-        self.0.send(json!({"type": "done", "id": self.1}));
+        self.0.send(PluginMsg::Done { id: std::mem::take(&mut self.1) });
+    }
+}
+
+/// The `id` of a host frame, as the string the protocol says it is.
+fn id_of(msg: &Value) -> String {
+    id_of_value(&msg["id"])
+}
+
+fn id_of_value(id: &Value) -> String {
+    match id {
+        Value::String(s) => s.clone(),
+        Value::Null => String::new(),
+        other => other.to_string(),
     }
 }
 
@@ -689,7 +689,7 @@ fn handle_sync(core: &Arc<Core>, msg: &Value) {
             rt.0.state.lock().unwrap().insert(iid.into(), s);
         }
         let s = rt.0.state.lock().unwrap().get(iid).cloned().unwrap_or_default();
-        rt.send(json!({"type": "state", "instance_id": iid, "state": s}));
+        rt.send(Visual::new().state(s).frame(Target::instance(iid)));
     }
 
     #[cfg(feature = "os-window")]
@@ -724,7 +724,7 @@ fn refresh_volatile(core: &Core) {
             }
             state.insert(iid.clone(), next.clone());
         }
-        core.rt.send(json!({"type": "state", "instance_id": iid, "state": next}));
+        core.rt.send(Visual::new().state(next).frame(Target::instance(iid)));
     }
 }
 
@@ -833,12 +833,12 @@ fn num(v: &Value) -> Option<f64> {
 
 fn reply(core: &Core, id: &Value, outcome: Result<Value>, what: &str) {
     core.rt.send(match outcome {
-        Ok(v) => json!({"type": "result", "id": id, "ok": true, "value": v}),
+        Ok(v) => PluginMsg::Result(CallResult::ok(id_of_value(id), v)),
         Err(e) => {
             if let Error::Other(m) = &e {
                 log(format!("{what} error: {m}"));
             }
-            json!({"type": "result", "id": id, "ok": false, "error": e.message()})
+            PluginMsg::Result(CallResult::err(id_of_value(id), e.message()))
         }
     });
 }

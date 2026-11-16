@@ -35,6 +35,8 @@ pub use host::send_keys;
 pub use log::log;
 pub use plugin::{Action, Kind, Plugin};
 pub use runtime::{host_process_id, inputs_match, Runtime, Visual, FEATURE_STATE_MATCH, PROTOCOL};
+/// The wire protocol: every frame type, shared with the host.
+pub use knobdeck_protocol as protocol;
 pub use serde_json::{json, Value};
 pub use setup::{run_setup, SetupCtx};
 

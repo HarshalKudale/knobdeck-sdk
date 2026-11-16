@@ -1,0 +1,290 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PluginMsg",
+  "description": "A frame the plugin writes to its stdout. Nothing else may go to stdout; logs go to stderr.",
+  "oneOf": [
+    {
+      "description": "The first line, after `hello`.",
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "ready"
+        },
+        "protocol": {
+          "description": "The protocol the plugin was built for.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "subscribe": {
+          "description": "[`events`] to receive from the start.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "done": {
+          "description": "The plugin sends `done` after each invoke's handler returns. Workflows wait for it.",
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "required": [
+        "type",
+        "protocol"
+      ]
+    },
+    {
+      "description": "An `invoke` arrived (liveness).",
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "ack"
+        },
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "id"
+      ]
+    },
+    {
+      "description": "An `invoke`'s handler returned, so its effects have landed.",
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "done"
+        },
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "id"
+      ]
+    },
+    {
+      "description": "State and/or a temporary label/icon for one instance, or for every instance of an action.",
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "state"
+        }
+      },
+      "$ref": "#/$defs/StateUpdate",
+      "required": [
+        "type"
+      ]
+    },
+    {
+      "description": "A failure for `instance_id`, else the invoke `id`'s instance, else every instance of\n`action_id`.",
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "error"
+        }
+      },
+      "$ref": "#/$defs/ErrorReport",
+      "required": [
+        "type"
+      ]
+    },
+    {
+      "description": "The answer to a host `request`.",
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "result"
+        }
+      },
+      "$ref": "#/$defs/CallResult",
+      "required": [
+        "type"
+      ]
+    },
+    {
+      "description": "Ask the host to do something; answered by a `result` with the same `id`.",
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "host_call"
+        },
+        "id": {
+          "type": "string"
+        },
+        "method": {
+          "description": "A [`host_calls`] value.",
+          "type": "string"
+        },
+        "params": {
+          "default": null
+        }
+      },
+      "required": [
+        "type",
+        "id",
+        "method"
+      ]
+    },
+    {
+      "description": "Replace the plugin's event subscriptions.",
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "subscribe"
+        },
+        "events": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "type",
+        "events"
+      ]
+    },
+    {
+      "description": "The plugin's setup is no longer valid (an expired token…); the host asks the user again.",
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "setup_required"
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "type"
+      ]
+    }
+  ],
+  "$defs": {
+    "StateUpdate": {
+      "description": "Who a `state` or `error` frame is for: one instance, or every instance of an action\n(narrowed by `match` when the host has [`features::STATE_MATCH`]).",
+      "type": "object",
+      "properties": {
+        "instance_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "action_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "match": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": true
+        },
+        "state": {
+          "description": "The new state. A frame without it leaves state and error alone.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "label": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "icon": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "ErrorReport": {
+      "description": "Who a `state` or `error` frame is for: one instance, or every instance of an action\n(narrowed by `match` when the host has [`features::STATE_MATCH`]).",
+      "type": "object",
+      "properties": {
+        "instance_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "action_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "match": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": true
+        },
+        "id": {
+          "description": "The invoke this error ends, when there is one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "message"
+      ]
+    },
+    "CallResult": {
+      "description": "`result`: the answer to a `request` (plugin → host) or a `host_call` (host → plugin).",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "value": {
+          "description": "Present when `ok`. May be `null`, which is kept apart from \"absent\"."
+        },
+        "error": {
+          "description": "Present when not `ok`. Human-readable; not part of the contract.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "ok"
+      ]
+    }
+  }
+}

@@ -244,27 +244,21 @@ fn codegen_emits_manifest_and_actions() {
     assert_eq!(actions.iter().find(|a| a["type"] == "slider").unwrap()["max"], 100.0);
 }
 
-// ── Golden fixtures (tests/fixtures/protocol-v2.jsonl) ───────────────────────
+// ── Golden fixtures (knobdeck-protocol/fixtures/protocol-v2.jsonl) ───────────
 //
 // The fixture file holds one or more example frames per message type, in both directions. It is the
 // written-down contract: COMPAT.md says what may change. Every frame this SDK emits must fit it
 // (known type, known keys, matching JSON types), and the plugin must survive every host frame in it.
 // Adding a field is allowed, but it has to be added to the fixture too, so the change is visible in
-// review. Copied byte for byte into the host repo (`app/src-tauri/tests/fixtures/`).
+// review. The host tests against the same file through the `knobdeck-protocol` crate.
 
-const FIXTURES: &str = include_str!("fixtures/protocol-v2.jsonl");
+use knobdeck_sdk::protocol::fixtures;
 
 /// Keys whose value is free-form by design; only their presence is checked.
 const FREE_FORM: &[&str] = &["value", "params", "inputs", "payload", "match", "instances"];
 
 fn fixture_frames(dir: &str) -> Vec<Value> {
-    FIXTURES
-        .lines()
-        .filter(|l| !l.trim().is_empty())
-        .map(|l| serde_json::from_str::<Value>(l).expect("fixture line is JSON"))
-        .filter(|e| e["dir"] == dir)
-        .map(|e| e["frame"].clone())
-        .collect()
+    fixtures::frames(fixtures::V2, dir)
 }
 
 fn json_type(v: &Value) -> &'static str {
@@ -283,7 +277,7 @@ fn misfit(dir: &str, frame: &Value) -> Option<String> {
     let ty = frame["type"].as_str()?;
     let examples: Vec<Value> = fixture_frames(dir).into_iter().filter(|f| f["type"] == ty).collect();
     if examples.is_empty() {
-        return Some(format!("message type {ty:?} is not in tests/fixtures/protocol-v2.jsonl"));
+        return Some(format!("message type {ty:?} is not in knobdeck-protocol/fixtures/protocol-v2.jsonl"));
     }
     for (key, val) in frame.as_object().unwrap() {
         let known: Vec<&Value> = examples.iter().filter_map(|e| e.get(key)).collect();

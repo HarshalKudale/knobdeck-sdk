@@ -82,7 +82,11 @@ impl Ctx {
     }
     /// Fan-out: report state for ALL instances of this action.
     pub fn fan_out(&self, value: impl ToString) {
-        self.rt.send(serde_json::json!({"type": "state", "action_id": self.full_action_id, "state": value.to_string()}));
+        self.rt.send(knobdeck_protocol::PluginMsg::State(knobdeck_protocol::StateUpdate {
+            target: knobdeck_protocol::Target::action(self.full_action_id.clone()),
+            state: Some(value.to_string()),
+            ..Default::default()
+        }));
     }
     /// Push ephemeral visuals (any subset of state/label/icon) for THIS instance.
     pub fn set_visual(&self, patch: Visual) {
