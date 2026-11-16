@@ -1,0 +1,23 @@
+{"dir":"to_plugin","frame":{"type":"hello","protocol":2,"plugin_id":"example-rust","data_dir":"/tmp/knobdeck/plugin-data/example-rust","host_version":"1.0.0","features":["state_match"],"host_pid":4242}}
+{"dir":"to_plugin","frame":{"type":"sync","instances":[{"instance_id":"i1","action_id":"example-rust-mute-0a1b2c3d","inputs":{}}]}}
+{"dir":"to_plugin","frame":{"type":"invoke","id":"r1","instance_id":"i1","action_id":"example-rust-mute-0a1b2c3d","trigger":"press","inputs":{}}}
+{"dir":"to_plugin","frame":{"type":"invoke","id":"r2","instance_id":"v1","action_id":"example-rust-volume-4e5f6a7b","trigger":"adjust","inputs":{"value":40}}}
+{"dir":"to_plugin","frame":{"type":"invoke","id":"r3","instance_id":"w1::3","action_id":"example-rust-recent-8c9d0e1f","trigger":"press","inputs":{},"child_id":"3"}}
+{"dir":"to_plugin","frame":{"type":"request","id":"q1","method":"query","params":{"query_id":"items","inputs":{"group":"fruit"}}}}
+{"dir":"to_plugin","frame":{"type":"event","event":"focus_changed","payload":{"app":"code.exe"}}}
+{"dir":"to_plugin","frame":{"type":"result","id":"h1","ok":true,"value":null}}
+{"dir":"to_plugin","frame":{"type":"result","id":"h2","ok":false,"error":"not possible"}}
+{"dir":"to_plugin","frame":{"type":"shutdown"}}
+{"dir":"to_host","frame":{"type":"ready","protocol":2,"subscribe":["focus_changed"],"done":true}}
+{"dir":"to_host","frame":{"type":"ack","id":"r1"}}
+{"dir":"to_host","frame":{"type":"done","id":"r1"}}
+{"dir":"to_host","frame":{"type":"state","instance_id":"i1","state":"muted"}}
+{"dir":"to_host","frame":{"type":"state","action_id":"example-rust-mute-0a1b2c3d","state":"muted","label":"Muted","icon":"mic-off"}}
+{"dir":"to_host","frame":{"type":"state","action_id":"example-rust-device-volume-2b3c4d5e","match":{"device":"a"},"state":"40"}}
+{"dir":"to_host","frame":{"type":"error","instance_id":"i1","message":"demo error"}}
+{"dir":"to_host","frame":{"type":"error","action_id":"example-rust-mute-0a1b2c3d","match":{"device":"a"},"id":"r1","message":"demo error"}}
+{"dir":"to_host","frame":{"type":"result","id":"q1","ok":true,"value":["apple","pear"]}}
+{"dir":"to_host","frame":{"type":"result","id":"q2","ok":false,"error":"unknown query \"nope\""}}
+{"dir":"to_host","frame":{"type":"host_call","id":"c1","method":"send_keys","params":{"keys":"ctrl+m"}}}
+{"dir":"to_host","frame":{"type":"subscribe","events":["focus_changed"]}}
+{"dir":"to_host","frame":{"type":"setup_required","reason":"demo token expired"}}

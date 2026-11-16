@@ -1,0 +1,15 @@
+name: CI
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    # The protocol fixtures (COMPAT.md) are OS-independent; one runner catches a shape change.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: cargo test (SDK, all features)
+        run: cargo test --all-features

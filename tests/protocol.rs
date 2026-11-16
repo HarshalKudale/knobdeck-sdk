@@ -7,7 +7,20 @@ use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::mpsc::{channel, Receiver};
 use std::time::Duration;
 
+/// `cargo test` does not rebuild `target/debug/examples/demo`, the binary these tests launch, so a
+/// change to the SDK could pass against stale code. Build it once per test run.
 fn demo_exe() -> std::path::PathBuf {
+    static BUILT: std::sync::Once = std::sync::Once::new();
+    BUILT.call_once(|| {
+        let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".into());
+        let ok = Command::new(cargo)
+            .args(["build", "--example", "demo", "--quiet"])
+            .current_dir(env!("CARGO_MANIFEST_DIR"))
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        assert!(ok, "could not build the demo example");
+    });
     let mut p = std::env::current_exe().unwrap();
     p.pop(); // deps/
     p.pop();
@@ -18,6 +31,8 @@ struct Host {
     child: Child,
     stdin: ChildStdin,
     lines: Receiver<String>,
+    /// Every frame read so far, for the fixture shape check.
+    seen: std::cell::RefCell<Vec<Value>>,
 }
 
 impl Host {
@@ -44,7 +59,7 @@ impl Host {
                 }
             }
         });
-        let mut host = Host { child, stdin, lines };
+        let mut host = Host { child, stdin, lines, seen: Default::default() };
         host.send(json!({"type": "hello", "protocol": 2, "plugin_id": "example-rust", "data_dir": data_dir, "host_version": "test", "features": features}));
         host
     }
@@ -57,7 +72,9 @@ impl Host {
     /// Every stdout line must be a protocol message; return the next one.
     fn next(&self) -> Value {
         let line = self.lines.recv_timeout(Duration::from_secs(10)).expect("plugin went quiet");
-        serde_json::from_str(&line).unwrap_or_else(|e| panic!("non-protocol stdout line {line:?}: {e}"))
+        let v: Value = serde_json::from_str(&line).unwrap_or_else(|e| panic!("non-protocol stdout line {line:?}: {e}"));
+        self.seen.borrow_mut().push(v.clone());
+        v
     }
 
     /// Read until a message of type `ty` (skipping unrelated pushes like the ticker).
@@ -225,6 +242,143 @@ fn codegen_emits_manifest_and_actions() {
     let actions = v["actions"]["actions"].as_array().unwrap();
     assert_eq!(actions[0]["id"], knobdeck_sdk::make_full_id("example-rust", "ping"));
     assert_eq!(actions.iter().find(|a| a["type"] == "slider").unwrap()["max"], 100.0);
+}
+
+// ── Golden fixtures (tests/fixtures/protocol-v2.jsonl) ───────────────────────
+//
+// The fixture file holds one or more example frames per message type, in both directions. It is the
+// written-down contract: COMPAT.md says what may change. Every frame this SDK emits must fit it
+// (known type, known keys, matching JSON types), and the plugin must survive every host frame in it.
+// Adding a field is allowed, but it has to be added to the fixture too, so the change is visible in
+// review. Copied byte for byte into the host repo (`app/src-tauri/tests/fixtures/`).
+
+const FIXTURES: &str = include_str!("fixtures/protocol-v2.jsonl");
+
+/// Keys whose value is free-form by design; only their presence is checked.
+const FREE_FORM: &[&str] = &["value", "params", "inputs", "payload", "match", "instances"];
+
+fn fixture_frames(dir: &str) -> Vec<Value> {
+    FIXTURES
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| serde_json::from_str::<Value>(l).expect("fixture line is JSON"))
+        .filter(|e| e["dir"] == dir)
+        .map(|e| e["frame"].clone())
+        .collect()
+}
+
+fn json_type(v: &Value) -> &'static str {
+    match v {
+        Value::Null => "null",
+        Value::Bool(_) => "bool",
+        Value::Number(_) => "number",
+        Value::String(_) => "string",
+        Value::Array(_) => "array",
+        Value::Object(_) => "object",
+    }
+}
+
+/// Why `frame` does not fit the fixtures for `dir`, or `None`.
+fn misfit(dir: &str, frame: &Value) -> Option<String> {
+    let ty = frame["type"].as_str()?;
+    let examples: Vec<Value> = fixture_frames(dir).into_iter().filter(|f| f["type"] == ty).collect();
+    if examples.is_empty() {
+        return Some(format!("message type {ty:?} is not in tests/fixtures/protocol-v2.jsonl"));
+    }
+    for (key, val) in frame.as_object().unwrap() {
+        let known: Vec<&Value> = examples.iter().filter_map(|e| e.get(key)).collect();
+        if known.is_empty() {
+            return Some(format!("{ty}: field {key:?} is not in the fixtures (renamed or added? update them and COMPAT.md)"));
+        }
+        if !FREE_FORM.contains(&key.as_str()) && !known.iter().any(|k| json_type(k) == json_type(val)) {
+            return Some(format!("{ty}.{key}: type changed to {} (fixtures have {})", json_type(val), json_type(known[0])));
+        }
+    }
+    None
+}
+
+#[test]
+fn fixtures_are_well_formed() {
+    for (dir, expect_hello) in [("to_plugin", "hello"), ("to_host", "ready")] {
+        let frames = fixture_frames(dir);
+        assert_eq!(frames[0]["type"], expect_hello, "{dir} starts with {expect_hello}");
+        assert!(frames.iter().all(|f| f["type"].is_string()), "{dir}: every frame has a type");
+    }
+    assert_eq!(fixture_frames("to_plugin")[0]["protocol"], 2);
+}
+
+#[test]
+fn every_emitted_frame_fits_the_fixtures() {
+    let dir = tempfile_dir("fixtures");
+    let mut h = Host::start_with(&dir, json!(["state_match"]));
+    h.expect("ready");
+
+    let mute = knobdeck_sdk::make_full_id("example-rust", "mute");
+    let volume = knobdeck_sdk::make_full_id("example-rust", "volume");
+    let pick = knobdeck_sdk::make_full_id("example-rust", "pick");
+    let expire = knobdeck_sdk::make_full_id("example-rust", "expire");
+    let dv = knobdeck_sdk::make_full_id("example-rust", "device-volume");
+
+    h.send(json!({"type": "sync", "instances": [
+        {"instance_id": "i1", "action_id": mute, "inputs": {}},
+        {"instance_id": "v1", "action_id": volume, "inputs": {}},
+        {"instance_id": "a1", "action_id": dv, "inputs": {"device": "a", "step": "5"}},
+    ]}));
+    h.expect_where("state", |m| m["instance_id"] == "i1");
+    h.send(json!({"type": "invoke", "id": "r1", "instance_id": "i1", "action_id": mute, "trigger": "press", "inputs": {}}));
+    h.expect("done");
+    h.send(json!({"type": "invoke", "id": "r2", "instance_id": "v1", "action_id": volume, "trigger": "adjust", "inputs": {"value": 40}}));
+    h.expect("done");
+    h.send(json!({"type": "invoke", "id": "r3", "instance_id": "a1", "action_id": dv, "trigger": "adjust", "inputs": {"device": "a", "step": "5", "value": 40}}));
+    h.expect("done");
+    h.send(json!({"type": "request", "id": "q1", "method": "query", "params": {"query_id": "items", "inputs": {"group": "fruit"}}}));
+    h.expect("result");
+    h.send(json!({"type": "request", "id": "q2", "method": "query", "params": {"query_id": "nope"}}));
+    h.expect("result");
+    h.send(json!({"type": "invoke", "id": "r4", "instance_id": "p1", "action_id": pick, "trigger": "press", "inputs": {}}));
+    h.expect("error");
+    h.send(json!({"type": "invoke", "id": "r5", "instance_id": "e1", "action_id": expire, "trigger": "press", "inputs": {}}));
+    h.expect("setup_required");
+    drop(h.stdin);
+    wait_exit(&mut h.child);
+
+    let seen = h.seen.borrow();
+    let problems: Vec<String> = seen.iter().filter_map(|f| misfit("to_host", f)).collect();
+    assert!(problems.is_empty(), "frames the plugin sent do not fit the fixtures:\n{}", problems.join("\n"));
+    for ty in ["ready", "ack", "done", "state", "error", "result", "setup_required"] {
+        assert!(seen.iter().any(|f| f["type"] == ty), "the session never produced a {ty:?} frame, so it was not checked");
+    }
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn plugin_survives_every_host_frame_in_the_fixtures() {
+    let dir = tempfile_dir("host-frames");
+    let mut h = Host::start_with(&dir, json!(["state_match"]));
+    h.expect("ready");
+    // Everything a host may send, including ids the plugin has never heard of.
+    for f in fixture_frames("to_plugin") {
+        if f["type"] != "hello" && f["type"] != "shutdown" {
+            h.send(f);
+        }
+    }
+    // Still alive and answering in order.
+    h.send(json!({"type": "request", "id": "alive", "method": "query", "params": {"query_id": "items", "inputs": {"group": "fruit"}}}));
+    let res = h.expect_where("result", |m| m["id"] == "alive");
+    assert_eq!(res["ok"], true);
+    h.send(json!({"type": "shutdown"}));
+    assert!(wait_exit(&mut h.child).success());
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn a_new_field_is_caught_until_the_fixture_declares_it() {
+    // The guard itself: an undeclared field, a changed type and an unknown type are all reported.
+    assert!(misfit("to_host", &json!({"type": "ack", "id": "r1"})).is_none());
+    assert!(misfit("to_host", &json!({"type": "ack", "id": "r1", "extra": 1})).is_some());
+    assert!(misfit("to_host", &json!({"type": "ack", "id": 7})).is_some());
+    assert!(misfit("to_host", &json!({"type": "ack", "identifier": "r1"})).is_some());
+    assert!(misfit("to_host", &json!({"type": "brand_new"})).is_some());
 }
 
 fn tempfile_dir(tag: &str) -> std::path::PathBuf {
