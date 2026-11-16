@@ -102,13 +102,25 @@ fn app_of_enabling(c: &Connection, pid: u32) -> Result<Obj> {
     }
 }
 
-/// The app on the bus whose process is `pid`.
+fn pid_of(c: &Connection, bus_name: &str) -> Option<u32> {
+    bus::call(c, "org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus", "GetConnectionUnixProcessID", &(bus_name,)).ok()
+}
+
+/// The app on the bus whose process is `pid`. The last answer is kept: a bus name is never
+/// reused, so it stays right while that name still belongs to `pid` (one call instead of one
+/// per app on the bus).
 fn app_of(c: &Connection, pid: u32) -> Result<Obj> {
+    static LAST: Mutex<Option<(u32, Obj)>> = Mutex::new(None);
+    if let Some((p, app)) = LAST.lock().unwrap().clone() {
+        if p == pid && pid_of(c, &app.0) == Some(pid) {
+            return Ok(app);
+        }
+    }
     let root: Obj = ("org.a11y.atspi.Registry".into(), OwnedObjectPath::try_from("/org/a11y/atspi/accessible/root").unwrap());
     let apps: Vec<Obj> = call(c, &root, ACCESSIBLE, "GetChildren", &())?;
     for app in apps {
-        let p: Result<u32> = bus::call(c, "org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus", "GetConnectionUnixProcessID", &(app.0.as_str(),));
-        if p.ok() == Some(pid) {
+        if pid_of(c, &app.0) == Some(pid) {
+            *LAST.lock().unwrap() = Some((pid, app.clone()));
             return Ok(app);
         }
     }
@@ -202,14 +214,6 @@ pub fn selected_text() -> Result<Option<String>> {
     }
 }
 
-/// An object's property through a plain `Properties.Get` (Qt's bridge answers that, but not the
-/// property proxy's `GetAll`).
-#[cfg_attr(not(feature = "files"), allow(dead_code))]
-fn prop<T: TryFrom<zbus::zvariant::OwnedValue>>(c: &Connection, o: &Obj, iface: &str, name: &str) -> Option<T> {
-    let v: zbus::zvariant::OwnedValue = call(c, o, "org.freedesktop.DBus.Properties", "Get", &(iface, name)).ok()?;
-    T::try_from(v).ok()
-}
-
 /// A Dolphin view: its folder and the items selected in it.
 #[cfg(feature = "files")]
 #[derive(Debug, Default)]
@@ -231,85 +235,290 @@ fn folder_of_description(desc: &str) -> Option<std::path::PathBuf> {
     Some(std::path::PathBuf::from(p))
 }
 
-/// Dolphin's views (one, or two in split view) in the process `pid`, with their selections.
+// ── Dolphin ──────────────────────────────────────────────────────────────────────────────────
+//
+// Reading a Dolphin window takes hundreds of AT-SPI calls (its tree has ~700 objects, and Qt's
+// `Collection` finds nothing), each a round trip to Dolphin. So: the calls of one tree level go
+// out together and are answered in one pass; leaves aren't asked for children; only the active
+// window is walked; and the views found are remembered per window, so the next read checks
+// those few objects instead of walking again.
+
 #[cfg(feature = "files")]
-pub(crate) fn dolphin_views(pid: u32) -> Result<Vec<DolphinView>> {
-    let c = a11y()?;
-    let app = app_of_enabling(&c, pid).map_err(|_| Error::msg("Dolphin isn't on the accessibility bus"))?;
-    let deadline = Instant::now() + Duration::from_millis(600);
-    let mut views: Vec<(bool, DolphinView)> = vec![];
-    let mut title = String::new();
-    let mut stack: Vec<Obj> = call(&c, &app, ACCESSIBLE, "GetChildren", &()).unwrap_or_default();
-    let mut seen = 0;
-    while let Some(o) = stack.pop() {
-        seen += 1;
-        if seen > WALK_LIMIT || Instant::now() > deadline {
-            break;
+mod dolphin {
+    use super::*;
+    use std::future::Future;
+    use std::task::Poll;
+
+    const STATE_ACTIVE: u32 = 1;
+    /// How long a full walk of one window may take.
+    const WALK_DEADLINE: Duration = Duration::from_millis(600);
+
+    /// Roles never holding a folder view: the walk doesn't ask for their children. Item lists
+    /// and tables (a folder's items, the Places panel) can be long; the rest are menus and leaves.
+    const NOT_CONTAINERS: &[&str] = &[
+        "list", "table", "tree", "tree table", "list box", "list item", "table cell", "menu", "menu bar", "popup menu",
+        "menu item", "check menu item", "radio menu item", "separator", "push button", "toggle button", "radio button",
+        "check box", "label", "text", "entry", "password text", "combo box", "button menu", "slider", "spin button",
+        "progress bar", "scroll bar", "grip", "icon", "image", "tool tip", "page tab list", "tool bar", "status bar",
+    ];
+
+    /// Runs `futs` together; their outputs in order.
+    async fn join_all<F: Future>(futs: impl IntoIterator<Item = F>) -> Vec<F::Output> {
+        let mut futs: Vec<_> = futs.into_iter().map(Box::pin).collect();
+        let mut out: Vec<Option<F::Output>> = futs.iter().map(|_| None).collect();
+        std::future::poll_fn(|cx| {
+            let mut pending = false;
+            for (f, slot) in futs.iter_mut().zip(out.iter_mut()) {
+                if slot.is_none() {
+                    match f.as_mut().poll(cx) {
+                        Poll::Ready(v) => *slot = Some(v),
+                        Poll::Pending => pending = true,
+                    }
+                }
+            }
+            if pending { Poll::Pending } else { Poll::Ready(()) }
+        })
+        .await;
+        out.into_iter().map(|v| v.expect("every future finished")).collect()
+    }
+
+    async fn acall<A, R>(c: &zbus::Connection, o: &Obj, iface: &str, method: &str, args: &A) -> Option<R>
+    where
+        A: serde::Serialize + zbus::zvariant::DynamicType,
+        R: for<'d> serde::Deserialize<'d> + zbus::zvariant::Type,
+    {
+        let reply = c.call_method(Some(o.0.as_str()), o.1.as_str(), Some(iface), method, args).await.ok()?;
+        reply.body().deserialize::<R>().ok()
+    }
+
+    /// An object's property through a plain `Properties.Get` (Qt's bridge answers that, but not
+    /// the property proxy's `GetAll`).
+    async fn aprop<T: TryFrom<zbus::zvariant::OwnedValue>>(c: &zbus::Connection, o: &Obj, iface: &str, name: &str) -> Option<T> {
+        let v: zbus::zvariant::OwnedValue = acall(c, o, "org.freedesktop.DBus.Properties", "Get", &(iface, name)).await?;
+        T::try_from(v).ok()
+    }
+
+    async fn astates(c: &zbus::Connection, o: &Obj) -> Option<u64> {
+        let s: Vec<u32> = acall(c, o, ACCESSIBLE, "GetState", &()).await?;
+        Some(s.first().copied().unwrap_or(0) as u64 | (s.get(1).copied().unwrap_or(0) as u64) << 32)
+    }
+
+    async fn children(c: &zbus::Connection, o: &Obj) -> Vec<Obj> {
+        acall(c, o, ACCESSIBLE, "GetChildren", &()).await.unwrap_or_default()
+    }
+
+    /// What a walk of one window found: its folder views (lists described by a `file://` URL),
+    /// each with the tab page it's on, and the tab bar and the stack of tab pages. Every tab's
+    /// views are in the tree and read as showing, so only the tab bar tells which one is in front.
+    #[derive(Clone, Default)]
+    struct Found {
+        tab_bar: Option<Obj>,
+        /// The tab pages, in tab order (Qt keeps them in step when tabs are dragged).
+        stack: Option<Obj>,
+        /// (tab page, folder view).
+        lists: Vec<(Option<Obj>, Obj)>,
+    }
+
+    /// Walks `frame` a level at a time (each level's calls go out together).
+    async fn walk(c: &zbus::Connection, frame: &Obj) -> Found {
+        let deadline = Instant::now() + WALK_DEADLINE;
+        let mut found = Found::default();
+        // (object, the tab page it's on)
+        let mut level: Vec<(Obj, Option<Obj>)> = vec![(frame.clone(), None)];
+        let mut seen = 0;
+        while !level.is_empty() && seen < WALK_LIMIT && Instant::now() < deadline {
+            seen += level.len();
+            let roles: Vec<String> = join_all(level.iter().map(|(o, _)| async move { acall(c, o, ACCESSIBLE, "GetRoleName", &()).await.unwrap_or_default() })).await;
+            let (mut lists, mut open) = (vec![], vec![]);
+            for ((o, page), role) in level.into_iter().zip(&roles) {
+                match role.as_str() {
+                    "list" => lists.push((page, o)),
+                    "page tab list" if found.tab_bar.is_none() => found.tab_bar = Some(o),
+                    r if NOT_CONTAINERS.contains(&r) => {}
+                    // The outermost layered pane is the stack of tab pages.
+                    r => {
+                        let stack = r == "layered pane" && found.stack.is_none();
+                        if stack {
+                            found.stack = Some(o.clone());
+                        }
+                        open.push((o, page, stack));
+                    }
+                }
+            }
+            let folders = join_all(lists.iter().map(|(_, l)| folder_of(c, l))).await;
+            found.lists.extend(lists.into_iter().zip(folders).filter(|(_, f)| f.is_some()).map(|(l, _)| l));
+            let kids = join_all(open.iter().map(|(o, _, _)| children(c, o))).await;
+            level = open
+                .into_iter()
+                .zip(kids)
+                .flat_map(|((_, page, stack), kids)| kids.into_iter().map(move |k| (k.clone(), if stack { Some(k) } else { page.clone() })))
+                .collect();
         }
-        let role: String = call(&c, &o, ACCESSIBLE, "GetRoleName", &()).unwrap_or_default();
-        let s = states(&c, &o).unwrap_or(0);
-        if role == "frame" && title.is_empty() {
-            title = prop(&c, &o, ACCESSIBLE, "Name").unwrap_or_default();
+        found
+    }
+
+    /// The tab page in front: the stack's page at the selected tab's index. `None` when the window
+    /// has no tab bar or none is selected.
+    async fn front_page(c: &zbus::Connection, found: &Found) -> Option<Obj> {
+        let (bar, stack) = (found.tab_bar.as_ref()?, found.stack.as_ref()?);
+        let (tabs, pages) = futures_join(children(c, bar), children(c, stack)).await;
+        let states = join_all(tabs.iter().map(|t| astates(c, t))).await;
+        let i = states.iter().position(|s| s.is_some_and(|s| has(s, STATE_SELECTED)))?;
+        pages.get(i).cloned()
+    }
+
+    /// The front tab's views now (every view when the front tab can't be told), and whether one
+    /// of them is marked as the active view. `None` when the front tab has no known view or a view
+    /// is gone: the window changed since `found` was walked.
+    async fn read(c: &zbus::Connection, found: &Found, title: &str) -> Option<(Vec<(bool, DolphinView)>, bool)> {
+        let page = front_page(c, found).await;
+        let lists: Vec<&Obj> = found.lists.iter().filter(|(p, _)| page.is_none() || *p == page).map(|(_, l)| l).collect();
+        if lists.is_empty() {
+            return None;
         }
-        if role == "list" {
-            let desc: String = prop(&c, &o, ACCESSIBLE, "Description").unwrap_or_default();
-            if let Some(folder) = folder_of_description(&desc) {
-                views.push((has(s, STATE_SHOWING), DolphinView { selected: selected_items(&c, &o, &folder), folder: Some(folder), focused: has(s, STATE_FOCUSED) }));
+        let mut views: Vec<_> = join_all(lists.into_iter().map(|l| view(c, l))).await.into_iter().collect::<Option<_>>()?;
+        let active = mark_active(&mut views, title);
+        Some((views, active))
+    }
+
+    async fn folder_of(c: &zbus::Connection, list: &Obj) -> Option<std::path::PathBuf> {
+        folder_of_description(&aprop::<String>(c, list, ACCESSIBLE, "Description").await?)
+    }
+
+    /// A view now; `None` when `list` is gone or no longer a folder view.
+    async fn view(c: &zbus::Connection, list: &Obj) -> Option<(bool, DolphinView)> {
+        let (folder, s) = futures_join(folder_of(c, list), astates(c, list)).await;
+        let (folder, s) = (folder?, s?);
+        let selected = selected_items(c, list, &folder).await;
+        Some((has(s, STATE_SHOWING), DolphinView { selected, folder: Some(folder), focused: has(s, STATE_FOCUSED) }))
+    }
+
+    async fn futures_join<A: Future, B: Future>(a: A, b: B) -> (A::Output, B::Output) {
+        let (mut a, mut b) = (Box::pin(a), Box::pin(b));
+        let (mut ra, mut rb) = (None, None);
+        std::future::poll_fn(|cx| {
+            if ra.is_none() {
+                if let Poll::Ready(v) = a.as_mut().poll(cx) {
+                    ra = Some(v);
+                }
+            }
+            if rb.is_none() {
+                if let Poll::Ready(v) = b.as_mut().poll(cx) {
+                    rb = Some(v);
+                }
+            }
+            if ra.is_some() && rb.is_some() { Poll::Ready(()) } else { Poll::Pending }
+        })
+        .await;
+        (ra.unwrap(), rb.unwrap())
+    }
+
+    /// A view's selected items as paths in `folder`: through the `Selection` interface, else each
+    /// item's SELECTED state.
+    async fn selected_items(c: &zbus::Connection, list: &Obj, folder: &std::path::Path) -> Vec<std::path::PathBuf> {
+        const SELECTION: &str = "org.a11y.atspi.Selection";
+        let items: Vec<Obj> = match aprop::<i32>(c, list, SELECTION, "NSelectedChildren").await {
+            Some(n) if n >= 0 => {
+                let n = n.min(crate::files::MAX_FILES as i32);
+                join_all((0..n).map(|i| async move { acall::<_, Obj>(c, list, SELECTION, "GetSelectedChild", &(i,)).await })).await.into_iter().flatten().collect()
+            }
+            _ => {
+                let all = children(c, list).await;
+                let s = join_all(all.iter().map(|o| astates(c, o))).await;
+                all.into_iter().zip(s).filter(|(_, s)| s.is_some_and(|s| has(s, STATE_SELECTED))).map(|(o, _)| o).collect()
+            }
+        };
+        join_all(items.iter().map(|o| aprop::<String>(c, o, ACCESSIBLE, "Name")))
+            .await
+            .into_iter()
+            .flatten()
+            .filter(|n| !n.is_empty() && !n.contains('/'))
+            .map(|n| folder.join(n))
+            .filter(|p| p.symlink_metadata().is_ok())
+            .collect()
+    }
+
+    /// What the last walk of each Dolphin window found (keyed by its frame object).
+    static FOUND: Mutex<Vec<(Obj, Found)>> = Mutex::new(Vec::new());
+
+    /// The views of `frame`'s front tab: from what the last walk found while that still holds and
+    /// names the active view (focused, or named by the title); otherwise from a fresh walk.
+    async fn frame_views(c: &zbus::Connection, frame: &Obj, title: &str) -> Vec<(bool, DolphinView)> {
+        let known = FOUND.lock().unwrap().iter().find(|(f, _)| f == frame).map(|(_, found)| found.clone());
+        if let Some(found) = known {
+            if let Some((views, true)) = read(c, &found, title).await {
+                return views;
             }
         }
-        // Qt doesn't mark every container as showing, so walk all of them; but not into item
-        // lists and tables (a folder's items, the Places panel), which can be long.
-        if !matches!(role.as_str(), "list" | "table" | "tree" | "tree table" | "list box" | "menu" | "menu bar") {
-            stack.extend(call::<_, Vec<Obj>>(&c, &o, ACCESSIBLE, "GetChildren", &()).unwrap_or_default());
+        let found = walk(c, frame).await;
+        let views = read(c, &found, title).await.map(|(v, _)| v).unwrap_or_default();
+        let mut cache = FOUND.lock().unwrap();
+        cache.retain(|(f, _)| f != frame);
+        if !found.lists.is_empty() {
+            // Closed windows are never told about; the oldest go past a few.
+            if cache.len() >= 8 {
+                cache.remove(0);
+            }
+            cache.push((frame.clone(), found));
+        }
+        views
+    }
+
+    /// Hidden views (a closed split, another tab) go when one is showing; when none has the keyboard
+    /// focus, the one the window title names (its folder's full path or name) is marked focused.
+    /// Whether a view is now marked focused.
+    pub(super) fn mark_active(views: &mut Vec<(bool, DolphinView)>, title: &str) -> bool {
+        if views.iter().any(|(showing, _)| *showing) {
+            views.retain(|(showing, _)| *showing);
+        }
+        if views.iter().any(|(_, v)| v.focused) {
+            return true;
+        }
+        let shown = title.rsplit_once(" — ").map_or(title, |(t, _)| t).trim();
+        let full = views.iter().position(|(_, v)| v.folder.as_deref().is_some_and(|f| f.as_os_str() == shown));
+        let named = || views.iter().position(|(_, v)| v.folder.as_deref().and_then(|f| f.file_name()).is_some_and(|n| n == shown));
+        match full.or_else(named) {
+            Some(i) => {
+                views[i].1.focused = true;
+                true
+            }
+            None => false,
         }
     }
-    // Hidden views (a closed split, another tab) only when nothing is showing.
-    let any_showing = views.iter().any(|(showing, _)| *showing);
-    let mut views: Vec<DolphinView> = views.into_iter().filter(|(showing, _)| *showing || !any_showing).map(|(_, v)| v).collect();
-    // The window title names the active view's folder (its full path when Dolphin shows it).
-    let shown = title.rsplit_once(" — ").map_or(title.as_str(), |(t, _)| t).trim();
-    if !views.iter().any(|v| v.focused) {
-        let full = views.iter().position(|v| v.folder.as_deref().is_some_and(|f| f.as_os_str() == shown));
-        let named = || views.iter().position(|v| v.folder.as_deref().and_then(|f| f.file_name()).is_some_and(|n| n == shown));
-        if let Some(i) = full.or_else(named) {
-            views[i].focused = true;
-        }
+
+    /// Dolphin's views in the process `pid`: those of its active window (all windows when none is
+    /// active), with their selections.
+    pub(crate) fn views(pid: u32) -> Result<Vec<DolphinView>> {
+        let conn = a11y()?;
+        let app = app_of_enabling(&conn, pid).map_err(|_| Error::msg("Dolphin isn't on the accessibility bus"))?;
+        let c = conn.inner();
+        zbus::block_on(async {
+            let frames = children(c, &app).await;
+            let info = join_all(frames.iter().map(|f| futures_join(astates(c, f), aprop::<String>(c, f, ACCESSIBLE, "Name")))).await;
+            let any_active = info.iter().any(|(s, _)| s.is_some_and(|s| has(s, STATE_ACTIVE)));
+            let chosen: Vec<(&Obj, String)> = frames
+                .iter()
+                .zip(info)
+                .filter(|(_, (s, _))| !any_active || s.is_some_and(|s| has(s, STATE_ACTIVE)))
+                .map(|(f, (_, name))| (f, name.unwrap_or_default()))
+                .collect();
+            // The title of the first chosen window names its active view.
+            let title = chosen.first().map(|(_, t)| t.clone()).unwrap_or_default();
+            let mut views: Vec<(bool, DolphinView)> = join_all(chosen.iter().map(|(f, t)| frame_views(c, f, t))).await.into_iter().flatten().collect();
+            mark_active(&mut views, &title);
+            let views: Vec<DolphinView> = views.into_iter().map(|(_, v)| v).collect();
+            if views.is_empty() {
+                return Err(Error::msg("Couldn't find Dolphin's folder view"));
+            }
+            Ok(views)
+        })
     }
-    if views.is_empty() {
-        return Err(Error::msg("Couldn't find Dolphin's folder view"));
-    }
-    Ok(views)
 }
 
-/// A view's selected items as paths in `folder`: through the `Selection` interface, else each
-/// item's SELECTED state.
+/// Dolphin's views (one, or two in split view, per tab) in the process `pid`, with their selections.
 #[cfg(feature = "files")]
-fn selected_items(c: &Connection, list: &Obj, folder: &std::path::Path) -> Vec<std::path::PathBuf> {
-    const SELECTION: &str = "org.a11y.atspi.Selection";
-    let mut items: Vec<Obj> = vec![];
-    match prop::<i32>(c, list, SELECTION, "NSelectedChildren") {
-        Some(n) if n >= 0 => {
-            for i in 0..n.min(crate::files::MAX_FILES as i32) {
-                if let Ok(o) = call::<_, Obj>(c, list, SELECTION, "GetSelectedChild", &(i,)) {
-                    items.push(o);
-                }
-            }
-        }
-        _ => {
-            for o in call::<_, Vec<Obj>>(c, list, ACCESSIBLE, "GetChildren", &()).unwrap_or_default() {
-                if states(c, &o).is_ok_and(|s| has(s, STATE_SELECTED)) {
-                    items.push(o);
-                }
-            }
-        }
-    }
-    items
-        .iter()
-        .filter_map(|o| prop::<String>(c, o, ACCESSIBLE, "Name"))
-        .filter(|n| !n.is_empty() && !n.contains('/'))
-        .map(|n| folder.join(n))
-        .filter(|p| p.symlink_metadata().is_ok())
-        .collect()
+pub(crate) fn dolphin_views(pid: u32) -> Result<Vec<DolphinView>> {
+    dolphin::views(pid)
 }
 
 #[cfg(test)]
@@ -320,6 +529,31 @@ mod tests {
         assert_eq!(super::folder_of_description("im Rasterlayout am Ort file:///home/me/"), Some("/home/me".into()));
         assert_eq!(super::folder_of_description("in location file:///"), Some("/".into()));
         assert_eq!(super::folder_of_description("Glob Pattern"), None);
+    }
+
+    #[cfg(feature = "files")]
+    #[test]
+    fn active_view_from_focus_or_title() {
+        use super::DolphinView;
+        let v = |folder: &str, focused| (true, DolphinView { folder: Some(folder.into()), selected: vec![], focused });
+        // Focus wins.
+        let mut views = vec![v("/a/Pics", false), v("/b", true)];
+        assert!(super::dolphin::mark_active(&mut views, "Pics — Dolphin"));
+        assert!(views[1].1.focused && !views[0].1.focused);
+        // No focus (Dolphin isn't in front): the title's folder name, or its full path.
+        let mut views = vec![v("/a/Apps", false), v("/a/Pics", false)];
+        assert!(super::dolphin::mark_active(&mut views, "Pics — Dolphin"));
+        assert!(views[1].1.focused);
+        let mut views = vec![v("/a/Pics", false), v("/b/Pics", false)];
+        assert!(super::dolphin::mark_active(&mut views, "/b/Pics — Dolphin"));
+        assert!(views[1].1.focused);
+        // Nothing matches: no view is marked, so a remembered layout is walked again.
+        let mut views = vec![v("/a/Apps", false)];
+        assert!(!super::dolphin::mark_active(&mut views, "Downloads — Dolphin"));
+        // Hidden views go when one is showing.
+        let mut views = vec![(false, DolphinView::default()), v("/a/Pics", true)];
+        super::dolphin::mark_active(&mut views, "");
+        assert_eq!(views.len(), 1);
     }
 
     /// Prints the focused element and selection of the frontmost window.

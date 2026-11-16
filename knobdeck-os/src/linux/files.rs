@@ -75,8 +75,12 @@ mod tests {
     fn live_dolphin() {
         let out = std::process::Command::new("pidof").arg("dolphin").output().unwrap();
         for pid in String::from_utf8_lossy(&out.stdout).split_whitespace().filter_map(|p| p.parse().ok()) {
-            let t = std::time::Instant::now();
-            eprintln!("dolphin {pid}: {:?} in {:?}", super::super::atspi::dolphin_views(pid), t.elapsed());
+            for _ in 0..5 {
+                let t = std::time::Instant::now();
+                let views = super::super::atspi::dolphin_views(pid);
+                eprintln!("dolphin {pid}: {} views in {:?}", views.as_ref().map_or(0, |v| v.len()), t.elapsed());
+            }
+            eprintln!("{:?}", super::super::atspi::dolphin_views(pid));
         }
     }
 }
