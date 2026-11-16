@@ -97,6 +97,23 @@ test("requests run the registered action; unknown and Unsupported answer unsuppo
   c.stop();
 });
 
+test("fallback handles actions without their own handler; own handlers win", async () => {
+  const c = companion()
+    .action("own", () => "mine")
+    .fallback((action, params) => ({ action, params }))
+    .start();
+  const ws = FakeSocket.all[0];
+  ws.open();
+  ws.hub({ type: "ready", protocol: 1, link: "l", host_version: "1" });
+  ws.hub({ type: "request", id: "1", action: "own", params: {} });
+  ws.hub({ type: "request", id: "2", action: "editor.action.formatDocument", params: { x: 1 } });
+  await tick(); await tick();
+  const byId = Object.fromEntries(ws.sent.filter((m) => m.type === "response").map((m) => [m.id, m]));
+  assert.equal(byId["1"].result, "mine");
+  assert.deepEqual(byId["2"].result, { action: "editor.action.formatDocument", params: { x: 1 } });
+  c.stop();
+});
+
 test("emit sends events only while linked; unknown hub frames are ignored", () => {
   const c = companion().start();
   const ws = FakeSocket.all[0];
@@ -142,6 +159,43 @@ test("a lost link reports disconnected and reconnects", async () => {
   await new Promise((r) => setTimeout(r, 15));
   assert.ok(FakeSocket.all.length >= 2);
   c.stop();
+});
+
+test("token and ports are read again on every attempt, so a KnobDeck restart is picked up", async () => {
+  FakeSocket.all = [];
+  let file = { token: "old", port: 41000 };
+  const c = new Companion({
+    plugin: "p", instance: "i", app: "a",
+    token: () => file.token, ports: () => [file.port],
+    socket: (u) => new FakeSocket(u), retryMinMs: 5, retryMaxMs: 10,
+  }).start();
+  FakeSocket.all[0].open();
+  assert.equal(FakeSocket.all[0].sent[0].token, "old");
+  // KnobDeck restarts: new token, new port; the old link drops.
+  file = { token: "new", port: 41003 };
+  FakeSocket.all[0].hub({ type: "refused", reason: "wrong token" });
+  FakeSocket.all[0].drop();
+  await new Promise((r) => setTimeout(r, 20));
+  const next = FakeSocket.all.at(-1)!;
+  assert.equal(next.url, "ws://127.0.0.1:41003/companion");
+  next.open();
+  assert.equal(next.sent[0].token, "new");
+  c.stop();
+});
+
+test("fromDiscovery reads the file on each call", async () => {
+  const { mkdtempSync, writeFileSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { fromDiscovery } = await import("../src/node.ts");
+  const path = mkdtempSync(tmpdir() + "/kd-") + "/companion-hub.json";
+  const d = fromDiscovery(path);
+  assert.equal(d.token(), undefined);
+  assert.equal(d.ports(), undefined);
+  writeFileSync(path, JSON.stringify({ protocol: 1, port: 32152, path: "/companion", token: "t1" }));
+  assert.equal(d.token(), "t1");
+  assert.deepEqual(d.ports(), [32152]);
+  writeFileSync(path, JSON.stringify({ protocol: 1, port: 32150, path: "/companion", token: "t2" }));
+  assert.equal(d.token(), "t2");
 });
 
 test("node helpers find the data folder per OS and read the discovery file", async () => {
