@@ -2,7 +2,10 @@
 //! The outputs are checked in; `tests/contract.rs` fails when one is stale
 //! (`KNOBDECK_BLESS=1 cargo test -p knobdeck-protocol --features schema` rewrites them).
 
-use crate::{events, features, fixtures, host_calls, requests, triggers, HostMsg, PluginMsg, MIN_PROTOCOL, PROTOCOL};
+use crate::{
+    events, features, fixtures, host_calls, requests, triggers, AppState, DialOpened, HostMsg, Notify, PluginMsg, MIN_PROTOCOL,
+    PROTOCOL,
+};
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::fmt::Write;
@@ -17,6 +20,25 @@ pub fn schemas() -> [(&'static str, Value); 2] {
     ]
 }
 
+/// Typed payloads that travel inside `event.payload`, `host_call.params` and `result.value`.
+pub fn payload_defs() -> BTreeMap<String, Value> {
+    let mut g = schemars::SchemaGenerator::default();
+    g.subschema_for::<DialOpened>();
+    g.subschema_for::<Notify>();
+    g.subschema_for::<AppState>();
+    g.take_definitions(true).into_iter().collect()
+}
+
+/// `schema/payloads.json`: the payload types as `$defs`.
+fn payload_schema() -> Value {
+    serde_json::json!({
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "title": "Payloads",
+        "description": "Typed payloads carried in event.payload, host_call.params and result.value.",
+        "$defs": payload_defs(),
+    })
+}
+
 /// One direction: (prefix for frame names, union name, schema, fixture direction).
 fn directions() -> [(&'static str, &'static str, Value, &'static str); 2] {
     let [(_, host), (_, plugin)] = schemas();
@@ -25,7 +47,7 @@ fn directions() -> [(&'static str, &'static str, Value, &'static str); 2] {
 
 /// Every `$defs` entry of both schemas, by name.
 fn shared_defs() -> BTreeMap<String, Value> {
-    let mut defs = BTreeMap::new();
+    let mut defs = payload_defs();
     for (_, _, schema, _) in directions() {
         if let Some(d) = schema["$defs"].as_object() {
             for (k, v) in d {
@@ -304,6 +326,15 @@ built for protocol `p` runs on hosts that support `{MIN_PROTOCOL}..={PROTOCOL}` 
             }
         }
     }
+    let _ = writeln!(out, "## Payloads\n");
+    let _ = writeln!(out, "Typed contents of `event.payload`, `host_call.params` and `result.value`; see the event and host call names above.\n");
+    for (name, def) in payload_defs() {
+        let _ = writeln!(out, "### `{name}`\n");
+        if let Some(d) = description(&def) {
+            let _ = writeln!(out, "{d}\n");
+        }
+        md_fields(&mut out, &def, &defs);
+    }
     out.trim_end().to_string() + "\n"
 }
 
@@ -313,6 +344,7 @@ pub fn all() -> Vec<(String, String)> {
         .into_iter()
         .map(|(name, s)| (format!("schema/{name}"), serde_json::to_string_pretty(&s).unwrap() + "\n"))
         .collect();
+    files.push(("schema/payloads.json".into(), serde_json::to_string_pretty(&payload_schema()).unwrap() + "\n"));
     files.push(("typescript/protocol.ts".into(), typescript()));
     files.push(("typescript/fixtures.check.ts".into(), typescript_fixture_check()));
     files.push(("REFERENCE.md".into(), reference()));

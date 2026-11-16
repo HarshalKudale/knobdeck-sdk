@@ -66,6 +66,45 @@ fn unknown_types_and_fields_are_ignored() {
 }
 
 #[test]
+fn fixture_payloads_fit_their_types() {
+    use knobdeck_protocol::{events, host_calls, AppState, DialOpened, Notify};
+    let mut seen = 0;
+    for f in fixtures::frames(fixtures::V2, "to_plugin") {
+        if f["type"] == "event" && f["event"] == events::DIAL_OPENED {
+            serde_json::from_value::<DialOpened>(f["payload"].clone()).unwrap();
+            seen += 1;
+        }
+        if f["type"] == "result" && f["value"].get("dial_open").is_some() {
+            serde_json::from_value::<AppState>(f["value"].clone()).unwrap();
+            seen += 1;
+        }
+    }
+    for f in fixtures::frames(fixtures::V2, "to_host") {
+        if f["type"] == "host_call" && f["method"] == host_calls::NOTIFY {
+            serde_json::from_value::<Notify>(f["params"].clone()).unwrap();
+            seen += 1;
+        }
+    }
+    assert_eq!(seen, 3, "every payload type has a fixture");
+}
+
+#[test]
+fn every_name_is_listed_once() {
+    use knobdeck_protocol::*;
+    for list in [features::ALL, events::ALL, triggers::ALL, requests::ALL, host_calls::ALL] {
+        let mut v = list.to_vec();
+        v.sort();
+        v.dedup();
+        assert_eq!(v.len(), list.len(), "{list:?} has a duplicate");
+    }
+    // Every feature a fixture hello announces is defined.
+    let hello = &fixtures::frames(fixtures::V2, "to_plugin")[0];
+    for f in hello["features"].as_array().unwrap() {
+        assert!(features::ALL.contains(&f.as_str().unwrap()), "{f} is not in features::ALL");
+    }
+}
+
+#[test]
 fn a_null_result_value_is_not_the_same_as_none() {
     let r: HostMsg = serde_json::from_str(r#"{"type":"result","id":"1","ok":true,"value":null}"#).unwrap();
     let HostMsg::Result(r) = r else { panic!() };

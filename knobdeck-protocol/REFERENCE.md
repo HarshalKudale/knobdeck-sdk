@@ -10,11 +10,11 @@ Machine-readable forms: `schema/host-to-plugin.json`, `schema/plugin-to-host.jso
 
 ## Names
 
-- **Features (`hello.features`):** `state_match`
-- **Events (`ready.subscribe`, `subscribe`, `event.event`):** `focus_changed`
+- **Features (`hello.features`):** `state_match`, `events`, `notify`, `app_state`
+- **Events (`ready.subscribe`, `subscribe`, `event.event`):** `focus_changed`, `dial_opened`, `dial_closed`, `profiles_changed`
 - **Triggers (`invoke.trigger`):** `press`, `hold_start`, `hold_end`, `adjust`
 - **Request methods (`request.method`):** `query`, `wheel`
-- **Host calls (`host_call.method`):** `send_keys`
+- **Host calls (`host_call.method`):** `send_keys`, `notify`, `app_state`
 
 ## Host → plugin
 
@@ -34,7 +34,7 @@ The body of `hello`: who the plugin is and what the host can do.
 | `host_pid` | `number` | no | The host's process id, so a plugin can leave KnobDeck's own windows out of "the target window". |
 
 ```json
-{"type":"hello","protocol":2,"plugin_id":"example-rust","data_dir":"/tmp/knobdeck/plugin-data/example-rust","host_version":"1.0.0","features":["state_match"],"host_pid":4242}
+{"type":"hello","protocol":2,"plugin_id":"example-rust","data_dir":"/tmp/knobdeck/plugin-data/example-rust","host_version":"1.0.0","features":["state_match","events","notify","app_state"],"host_pid":4242}
 ```
 
 ### `sync`
@@ -95,6 +95,8 @@ A host event the plugin subscribed to.
 
 ```json
 {"type":"event","event":"focus_changed","payload":{"app":"code.exe"}}
+{"type":"event","event":"dial_opened","payload":{"profile_id":"default"}}
+{"type":"event","event":"dial_closed","payload":{}}
 ```
 
 ### `result`
@@ -113,6 +115,7 @@ The answer to a plugin's `host_call`.
 ```json
 {"type":"result","id":"h1","ok":true,"value":null}
 {"type":"result","id":"h2","ok":false,"error":"not possible"}
+{"type":"result","id":"c2","ok":true,"value":{"os":"linux","host_version":"1.0.0","dial_open":false}}
 ```
 
 ### `shutdown`
@@ -236,6 +239,8 @@ Ask the host to do something; answered by a `result` with the same `id`.
 
 ```json
 {"type":"host_call","id":"c1","method":"send_keys","params":{"keys":"ctrl+m"}}
+{"type":"host_call","id":"c2","method":"notify","params":{"message":"Copied","level":"info"}}
+{"type":"host_call","id":"c3","method":"app_state","params":{}}
 ```
 
 ### `subscribe`
@@ -248,6 +253,7 @@ Replace the plugin's event subscriptions.
 
 ```json
 {"type":"subscribe","events":["focus_changed"]}
+{"type":"subscribe","events":["dial_opened","dial_closed","profiles_changed"]}
 ```
 
 ### `setup_required`
@@ -261,3 +267,34 @@ The plugin's setup is no longer valid (an expired token…); the host asks the u
 ```json
 {"type":"setup_required","reason":"demo token expired"}
 ```
+
+## Payloads
+
+Typed contents of `event.payload`, `host_call.params` and `result.value`; see the event and host call names above.
+
+### `AppState`
+
+The answer to the `app_state` host call.
+
+| Field | Type | Required | Meaning |
+|---|---|---|---|
+| `os` | `string` | yes | `windows`, `macos` or `linux`. |
+| `host_version` | `string` | yes |  |
+| `dial_open` | `boolean` | yes | Whether the dial is on screen. |
+
+### `DialOpened`
+
+Payload of the `dial_opened` event.
+
+| Field | Type | Required | Meaning |
+|---|---|---|---|
+| `profile_id` | `string` | yes | The profile the dial shows. |
+
+### `Notify`
+
+`params` of the `notify` host call.
+
+| Field | Type | Required | Meaning |
+|---|---|---|---|
+| `message` | `string` | yes | One short sentence. The host may shorten long text. |
+| `level` | `string` | no | `info` (default) or `error`. Unknown values read as `info`. |

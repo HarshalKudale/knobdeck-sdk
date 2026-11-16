@@ -4,7 +4,7 @@
 import type { HostMsg, PluginMsg } from "./protocol";
 
 export const toPlugin: HostMsg[] = [
-  {"type":"hello","protocol":2,"plugin_id":"example-rust","data_dir":"/tmp/knobdeck/plugin-data/example-rust","host_version":"1.0.0","features":["state_match"],"host_pid":4242},
+  {"type":"hello","protocol":2,"plugin_id":"example-rust","data_dir":"/tmp/knobdeck/plugin-data/example-rust","host_version":"1.0.0","features":["state_match","events","notify","app_state"],"host_pid":4242},
   {"type":"sync","instances":[{"instance_id":"i1","action_id":"example-rust-mute-0a1b2c3d","inputs":{}}]},
   {"type":"invoke","id":"r1","instance_id":"i1","action_id":"example-rust-mute-0a1b2c3d","trigger":"press","inputs":{}},
   {"type":"invoke","id":"r2","instance_id":"v1","action_id":"example-rust-volume-4e5f6a7b","trigger":"adjust","inputs":{"value":40}},
@@ -14,6 +14,9 @@ export const toPlugin: HostMsg[] = [
   {"type":"result","id":"h1","ok":true,"value":null},
   {"type":"result","id":"h2","ok":false,"error":"not possible"},
   {"type":"shutdown"},
+  {"type":"event","event":"dial_opened","payload":{"profile_id":"default"}},
+  {"type":"event","event":"dial_closed","payload":{}},
+  {"type":"result","id":"c2","ok":true,"value":{"os":"linux","host_version":"1.0.0","dial_open":false}},
 ];
 
 export const toHost: PluginMsg[] = [
@@ -30,4 +33,7 @@ export const toHost: PluginMsg[] = [
   {"type":"host_call","id":"c1","method":"send_keys","params":{"keys":"ctrl+m"}},
   {"type":"subscribe","events":["focus_changed"]},
   {"type":"setup_required","reason":"demo token expired"},
+  {"type":"host_call","id":"c2","method":"notify","params":{"message":"Copied","level":"info"}},
+  {"type":"host_call","id":"c3","method":"app_state","params":{}},
+  {"type":"subscribe","events":["dial_opened","dial_closed","profiles_changed"]},
 ];

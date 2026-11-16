@@ -7,11 +7,11 @@ export const PROTOCOL = 2;
 export const MIN_PROTOCOL = 2;
 
 /** Optional host behaviour, listed in `hello.features`. */
-export const FEATURES = ["state_match"] as const;
+export const FEATURES = ["state_match", "events", "notify", "app_state"] as const;
 export type Feature = (typeof FEATURES)[number];
 
 /** Host events a plugin can subscribe to. */
-export const EVENTS = ["focus_changed"] as const;
+export const EVENTS = ["focus_changed", "dial_opened", "dial_closed", "profiles_changed"] as const;
 export type EventName = (typeof EVENTS)[number];
 
 /** Values of `invoke.trigger`. */
@@ -23,8 +23,17 @@ export const REQUESTS = ["query", "wheel"] as const;
 export type RequestMethod = (typeof REQUESTS)[number];
 
 /** Values of `host_call.method`. */
-export const HOST_CALLS = ["send_keys"] as const;
+export const HOST_CALLS = ["send_keys", "notify", "app_state"] as const;
 export type HostCallMethod = (typeof HOST_CALLS)[number];
+
+/** The answer to the `app_state` host call. */
+export interface AppState {
+  /** `windows`, `macos` or `linux`. */
+  os: string;
+  host_version: string;
+  /** Whether the dial is on screen. */
+  dial_open: boolean;
+}
 
 /** `result`: the answer to a `request` (plugin → host) or a `host_call` (host → plugin). */
 export interface CallResult {
@@ -36,6 +45,12 @@ export interface CallResult {
   value?: unknown;
   /** Present when not `ok`. Human-readable; not part of the contract. */
   error?: string;
+}
+
+/** Payload of the `dial_opened` event. */
+export interface DialOpened {
+  /** The profile the dial shows. */
+  profile_id: string;
 }
 
 /** The body of an `error` frame: what failed, and who gets it. */
@@ -101,6 +116,14 @@ export interface Invoke {
   inputs?: unknown;
   /** Set when a dynamic wheel's child button was pressed. */
   child_id?: string;
+}
+
+/** `params` of the `notify` host call. */
+export interface Notify {
+  /** One short sentence. The host may shorten long text. */
+  message: string;
+  /** `info` (default) or `error`. Unknown values read as `info`. */
+  level?: string;
 }
 
 /** The body of a `state` frame: a new state and/or a temporary label or icon, and who gets it. */

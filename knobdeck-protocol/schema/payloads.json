@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Payloads",
+  "description": "Typed payloads carried in event.payload, host_call.params and result.value.",
+  "$defs": {
+    "AppState": {
+      "type": "object",
+      "properties": {
+        "os": {
+          "type": "string",
+          "description": "`windows`, `macos` or `linux`."
+        },
+        "host_version": {
+          "type": "string"
+        },
+        "dial_open": {
+          "type": "boolean",
+          "description": "Whether the dial is on screen."
+        }
+      },
+      "required": [
+        "os",
+        "host_version",
+        "dial_open"
+      ],
+      "description": "The answer to the `app_state` host call."
+    },
+    "DialOpened": {
+      "type": "object",
+      "properties": {
+        "profile_id": {
+          "type": "string",
+          "description": "The profile the dial shows."
+        }
+      },
+      "required": [
+        "profile_id"
+      ],
+      "description": "Payload of the `dial_opened` event."
+    },
+    "Notify": {
+      "type": "object",
+      "properties": {
+        "message": {
+          "type": "string",
+          "description": "One short sentence. The host may shorten long text."
+        },
+        "level": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "`info` (default) or `error`. Unknown values read as `info`."
+        }
+      },
+      "required": [
+        "message"
+      ],
+      "description": "`params` of the `notify` host call."
+    }
+  }
+}

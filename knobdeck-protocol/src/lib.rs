@@ -39,16 +39,38 @@ pub mod features {
     /// inputs hold those values get it. Without it, the SDK sends one frame per instance.
     pub const STATE_MATCH: &str = "state_match";
 
+    /// The host sends the [`events`](crate::events) marked "needs `events`" to plugins that
+    /// subscribe to them.
+    pub const EVENTS: &str = "events";
+
+    /// The host takes the [`notify`](crate::host_calls::NOTIFY) host call.
+    pub const NOTIFY: &str = "notify";
+
+    /// The host takes the [`app_state`](crate::host_calls::APP_STATE) host call.
+    pub const APP_STATE: &str = "app_state";
+
     /// Every feature defined by this version of the protocol.
-    pub const ALL: &[&str] = &[STATE_MATCH];
+    pub const ALL: &[&str] = &[STATE_MATCH, EVENTS, NOTIFY, APP_STATE];
 }
 
 /// Host events a plugin can subscribe to (`ready.subscribe`, `subscribe`).
 pub mod events {
-    /// The foreground app changed. Payload: `{"app": "<process or bundle name>"}`.
+    /// The foreground app changed. Payload: `{"app": "<process or bundle name>"}`. Current hosts
+    /// don't send it: a plugin that follows the foreground app marks its actions `.volatile()`
+    /// in the SDK. Subscribing is still allowed.
     pub const FOCUS_CHANGED: &str = "focus_changed";
 
-    pub const ALL: &[&str] = &[FOCUS_CHANGED];
+    /// The dial opened. Payload: [`DialOpened`](crate::DialOpened). Needs `events`.
+    pub const DIAL_OPENED: &str = "dial_opened";
+
+    /// The dial closed. Payload: `{}`. Needs `events`.
+    pub const DIAL_CLOSED: &str = "dial_closed";
+
+    /// The user's profiles were edited, added or removed (placed instances arrive separately, as
+    /// `sync`). Payload: `{}`. Needs `events`.
+    pub const PROFILES_CHANGED: &str = "profiles_changed";
+
+    pub const ALL: &[&str] = &[FOCUS_CHANGED, DIAL_OPENED, DIAL_CLOSED, PROFILES_CHANGED];
 }
 
 /// Values of [`Invoke::trigger`].
@@ -77,7 +99,14 @@ pub mod host_calls {
     /// `params: {keys}`. Last resort: plugins should drive apps through their APIs (Rule 1).
     pub const SEND_KEYS: &str = "send_keys";
 
-    pub const ALL: &[&str] = &[SEND_KEYS];
+    /// `params`: [`Notify`](crate::Notify). Show the user a short message from the plugin.
+    /// Answers `null`. Needs the `notify` feature.
+    pub const NOTIFY: &str = "notify";
+
+    /// `params`: `{}`. Answers [`AppState`](crate::AppState). Needs the `app_state` feature.
+    pub const APP_STATE: &str = "app_state";
+
+    pub const ALL: &[&str] = &[SEND_KEYS, NOTIFY, APP_STATE];
 }
 
 #[cfg(feature = "schema")]
@@ -350,6 +379,38 @@ pub struct ErrorReport {
     pub id: Option<String>,
     /// Shown to the user on the action.
     pub message: String,
+}
+
+// ── Payloads (`event.payload`, `host_call.params` and answers) ────────────────
+
+/// Payload of the `dial_opened` event.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
+pub struct DialOpened {
+    /// The profile the dial shows.
+    pub profile_id: String,
+}
+
+/// `params` of the `notify` host call.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
+pub struct Notify {
+    /// One short sentence. The host may shorten long text.
+    pub message: String,
+    /// `info` (default) or `error`. Unknown values read as `info`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub level: Option<String>,
+}
+
+/// The answer to the `app_state` host call.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
+pub struct AppState {
+    /// `windows`, `macos` or `linux`.
+    pub os: String,
+    pub host_version: String,
+    /// Whether the dial is on screen.
+    pub dial_open: bool,
 }
 
 /// The pinned example frames (`fixtures/`), one JSON object per line:

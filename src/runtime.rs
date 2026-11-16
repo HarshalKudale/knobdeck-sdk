@@ -106,6 +106,8 @@ pub(crate) struct Inner {
     workers: Mutex<HashMap<String, Sender<Job>>>,
     /// The host takes `match` on fan-out frames (`FEATURE_STATE_MATCH`).
     state_match: bool,
+    /// Everything the host listed in `hello.features`.
+    features: Vec<String>,
 }
 
 /// Handle for pushing state/visuals/errors outside of a handler (timers, pollers,
@@ -122,6 +124,12 @@ pub(crate) fn global() -> Option<&'static Runtime> {
 impl Runtime {
     pub fn log(&self, msg: impl AsRef<str>) {
         log(msg)
+    }
+
+    /// Whether the host listed `feature` in `hello.features` (names: `knobdeck_sdk::protocol::features`).
+    /// Use it before relying on optional host behaviour; the SDK's own helpers already do.
+    pub fn has_feature(&self, feature: &str) -> bool {
+        self.0.features.iter().any(|f| f == feature)
     }
 
     /// This plugin's persistent data folder (`%APPDATA%\KnobDeck\plugin-data\<id>`).
@@ -428,6 +436,10 @@ fn serve(plugin: Plugin) -> ! {
         state_match: hello["features"]
             .as_array()
             .is_some_and(|f| f.iter().any(|x| x == FEATURE_STATE_MATCH)),
+        features: hello["features"]
+            .as_array()
+            .map(|f| f.iter().filter_map(|x| x.as_str().map(String::from)).collect())
+            .unwrap_or_default(),
     }));
     let _ = RUNTIME.set(rt.clone());
     let host = host_pid(&hello);

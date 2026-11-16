@@ -241,6 +241,14 @@ impl Ctx {
     pub fn send_keys(&self, keys: &str) -> Result {
         crate::host::send_keys(keys)
     }
+    /// Show the user a short message ("Copied"). Goes to the plugin log on an older KnobDeck.
+    pub fn toast(&self, message: impl AsRef<str>) -> Result {
+        crate::host::toast(message.as_ref())
+    }
+    /// KnobDeck's OS, version and dial state (needs a KnobDeck with `app_state`).
+    pub fn app_state(&self) -> Result<crate::protocol::AppState> {
+        crate::host::app_state()
+    }
     /// The installed apps (scanned once per process; [`QueryCtx::installed_apps`] rescans).
     #[cfg(feature = "os-apps")]
     pub fn installed_apps(&self) -> Vec<crate::os::apps::InstalledApp> {

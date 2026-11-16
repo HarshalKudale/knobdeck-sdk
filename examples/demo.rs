@@ -2,6 +2,7 @@
 //! inputs and a background ticker. Run `knobdeck-plugin dev` from a crate using it.
 
 use knobdeck_sdk::input::{self, InputExt};
+use knobdeck_sdk::protocol::events;
 use knobdeck_sdk::{json, Action, Plugin, Visual};
 use std::time::Duration;
 
@@ -62,6 +63,19 @@ fn main() {
             Action::button("expire", "Expire token (setup demo)")
                 .on_press(|ctx| Ok(ctx.mark_setup_required("demo token expired"))),
         )
+        .action(Action::button("toast", "Toast (notify demo)").on_press(|ctx| ctx.toast("Hello from the demo")))
+        .action(Action::button("where", "Host info (app_state demo)").on_press(|ctx| {
+            // Needs a KnobDeck with `app_state`; an older one returns an error, shown on the button.
+            let st = ctx.app_state()?;
+            ctx.set_visual(Visual::new().label(format!("{} {}", st.os, st.host_version)));
+            Ok(())
+        }))
+        // Host events (a KnobDeck with the `events` feature sends these).
+        .subscribe(&[events::DIAL_OPENED, events::DIAL_CLOSED])
+        .on_event(|ev, rt| {
+            rt.log(format!("event {} {}", ev.name, ev.payload));
+            Ok(())
+        })
         .query("groups", |_| Ok(json!([{"value": "fruit", "label": "Fruit"}, {"value": "veg", "label": "Veg"}])))
         .query("items", |ctx| {
             Ok(match ctx.input_str("group").as_str() {

@@ -2,7 +2,7 @@
 //! KnobDeck. hello → ready → sync (one instance per action) → steps → shutdown. Every message the
 //! plugin sends is printed; host calls are answered with harmless stubs.
 
-use knobdeck_sdk::protocol::{features, host_calls, CallResult, Hello, HostMsg, Instance, PROTOCOL};
+use knobdeck_sdk::protocol::{features, host_calls, AppState, CallResult, Hello, HostMsg, Instance, PROTOCOL};
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -107,18 +107,30 @@ impl Host {
         }
     }
 
-    /// `send_keys` is the only host call; it gets a stub answer so the plugin keeps going, and is
-    /// worth noticing: the action fell back to keystrokes. Anything else is refused as KnobDeck does.
+    /// Host calls get the answers KnobDeck gives. `send_keys` is worth noticing: the action fell back
+    /// to keystrokes. Anything unknown is refused as KnobDeck does.
     fn answer(&mut self, msg: &Value) {
         let method = msg["method"].as_str().unwrap_or("");
         let id = msg["id"].as_str().unwrap_or_default().to_string();
-        if method == host_calls::SEND_KEYS {
-            println!("  ! send_keys {}: this action types a shortcut; prefer an API (see the skill)", msg["params"]);
-            self.send(frame(HostMsg::Result(CallResult::ok(id, Value::Null))));
-        } else {
-            println!("  ! unknown host call {method:?} (KnobDeck only takes send_keys)");
-            self.send(frame(HostMsg::Result(CallResult::err(id, format!("unknown host call method \"{method}\"")))));
-        }
+        let reply = match method {
+            host_calls::SEND_KEYS => {
+                println!("  ! send_keys {}: this action types a shortcut; prefer an API (see the skill)", msg["params"]);
+                CallResult::ok(id, Value::Null)
+            }
+            host_calls::NOTIFY => {
+                println!("  ✉ toast: {}", msg["params"]["message"].as_str().unwrap_or(""));
+                CallResult::ok(id, Value::Null)
+            }
+            host_calls::APP_STATE => {
+                let st = AppState { os: std::env::consts::OS.into(), host_version: "knobdeck-plugin drive".into(), dial_open: false };
+                CallResult::ok(id, serde_json::to_value(st).expect("serializes"))
+            }
+            _ => {
+                println!("  ! unknown host call {method:?}");
+                CallResult::err(id, format!("unknown host call method \"{method}\""))
+            }
+        };
+        self.send(frame(HostMsg::Result(reply)));
     }
 }
 

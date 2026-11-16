@@ -7,24 +7,28 @@ use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::mpsc::{channel, Receiver};
 use std::time::Duration;
 
-/// `cargo test` does not rebuild `target/debug/examples/demo`, the binary these tests launch, so a
-/// change to the SDK could pass against stale code. Build it once per test run.
+/// The demo example these tests launch, built once per test run (`cargo test` does not rebuild
+/// it, so a change to the SDK could otherwise pass against a stale binary). Cargo reports where it
+/// wrote the executable, so the tests don't guess the target layout.
 fn demo_exe() -> std::path::PathBuf {
-    static BUILT: std::sync::Once = std::sync::Once::new();
-    BUILT.call_once(|| {
+    static EXE: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+    EXE.get_or_init(|| {
         let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".into());
-        let ok = Command::new(cargo)
-            .args(["build", "--example", "demo", "--quiet"])
+        let out = Command::new(cargo)
+            .args(["build", "--example", "demo", "--message-format=json-render-diagnostics"])
             .current_dir(env!("CARGO_MANIFEST_DIR"))
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false);
-        assert!(ok, "could not build the demo example");
-    });
-    let mut p = std::env::current_exe().unwrap();
-    p.pop(); // deps/
-    p.pop();
-    p.join("examples").join(format!("demo{}", std::env::consts::EXE_SUFFIX))
+            .stderr(Stdio::inherit())
+            .output()
+            .expect("run cargo build --example demo");
+        assert!(out.status.success(), "could not build the demo example");
+        String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .filter_map(|l| serde_json::from_str::<Value>(l).ok())
+            .filter(|m| m["reason"] == "compiler-artifact" && m["target"]["name"] == "demo")
+            .find_map(|m| m["executable"].as_str().map(std::path::PathBuf::from))
+            .expect("cargo reported no demo executable")
+    })
+    .clone()
 }
 
 struct Host {
@@ -228,6 +232,81 @@ fn setup_required_carries_reason() {
     assert_eq!(m["reason"], "demo token expired");
     drop(h.stdin);
     assert!(wait_exit(&mut h.child).success(), "exits cleanly on stdin EOF");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn toast_is_a_notify_host_call_on_a_new_host_and_a_log_line_on_an_old_one() {
+    let toast = knobdeck_sdk::make_full_id("example-rust", "toast");
+    let press = |id: &str| json!({"type": "invoke", "id": id, "instance_id": "t1", "action_id": toast, "trigger": "press", "inputs": {}});
+
+    let dir = tempfile_dir("toast-new");
+    let mut h = Host::start_with(&dir, json!(["state_match", "notify"]));
+    h.expect("ready");
+    h.send(press("r1"));
+    let call = h.expect("host_call");
+    assert_eq!(call["method"], "notify");
+    assert_eq!(call["params"], json!({"message": "Hello from the demo"}));
+    h.send(json!({"type": "result", "id": call["id"], "ok": true, "value": null}));
+    h.expect_where("done", |m| m["id"] == "r1");
+    drop(h.stdin);
+    wait_exit(&mut h.child);
+    std::fs::remove_dir_all(&dir).ok();
+
+    let dir = tempfile_dir("toast-old");
+    let mut h = Host::start_with(&dir, json!(["state_match"]));
+    h.expect("ready");
+    h.send(press("r1"));
+    h.expect_where("done", |m| m["id"] == "r1");
+    assert!(!h.seen.borrow().iter().any(|f| f["type"] == "host_call"), "an old host gets no notify call");
+    assert!(!h.seen.borrow().iter().any(|f| f["type"] == "error"), "and the action still succeeds");
+    drop(h.stdin);
+    wait_exit(&mut h.child);
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn app_state_reads_the_host_answer_and_fails_clearly_on_an_old_host() {
+    let here = knobdeck_sdk::make_full_id("example-rust", "where");
+    let press = json!({"type": "invoke", "id": "r1", "instance_id": "w1", "action_id": here, "trigger": "press", "inputs": {}});
+
+    let dir = tempfile_dir("app-state-new");
+    let mut h = Host::start_with(&dir, json!(["app_state"]));
+    h.expect("ready");
+    h.send(press.clone());
+    let call = h.expect("host_call");
+    assert_eq!(call["method"], "app_state");
+    h.send(json!({"type": "result", "id": call["id"], "ok": true, "value": {"os": "linux", "host_version": "9.9", "dial_open": false}}));
+    let st = h.expect_where("state", |m| m["instance_id"] == "w1" && m.get("label").is_some());
+    assert_eq!(st["label"], "linux 9.9");
+    drop(h.stdin);
+    wait_exit(&mut h.child);
+    std::fs::remove_dir_all(&dir).ok();
+
+    let dir = tempfile_dir("app-state-old");
+    let mut h = Host::start(&dir);
+    h.expect("ready");
+    h.send(press);
+    let err = h.expect("error");
+    assert!(err["message"].as_str().unwrap().contains("update KnobDeck"), "{err}");
+    drop(h.stdin);
+    wait_exit(&mut h.child);
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn subscribed_events_reach_on_event_and_ready_lists_them() {
+    let dir = tempfile_dir("events");
+    let mut h = Host::start_with(&dir, json!(["events"]));
+    let ready = h.expect("ready");
+    assert_eq!(ready["subscribe"], json!(["dial_opened", "dial_closed"]));
+    h.send(json!({"type": "event", "event": "dial_opened", "payload": {"profile_id": "default"}}));
+    h.send(json!({"type": "event", "event": "some_future_event", "payload": 1}));
+    // Still answering afterwards.
+    h.send(json!({"type": "request", "id": "q", "method": "query", "params": {"query_id": "items", "inputs": {"group": "fruit"}}}));
+    assert_eq!(h.expect_where("result", |m| m["id"] == "q")["ok"], true);
+    drop(h.stdin);
+    wait_exit(&mut h.child);
     std::fs::remove_dir_all(&dir).ok();
 }
 
