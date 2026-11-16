@@ -11,7 +11,7 @@ use std::sync::mpsc::{channel, Receiver, RecvTimeoutError};
 use std::time::{Duration, Instant};
 
 /// The plugin under `dist/` and the executable this OS runs.
-fn find_plugin() -> Result<(PathBuf, Value, PathBuf), String> {
+pub fn find_plugin() -> Result<(PathBuf, Value, PathBuf), String> {
     let dirs: Vec<PathBuf> = std::fs::read_dir("dist")
         .map_err(|_| "no dist/ here: run `knobdeck-plugin dev` first".to_string())?
         .flatten()

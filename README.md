@@ -75,6 +75,12 @@ steps file to exercise actions:
 `notify`, `app_state` and `open_dial` get the answers KnobDeck gives; any other host call is refused, as KnobDeck does. It fails when the
 plugin writes anything but protocol messages to stdout.
 
+`knobdeck-plugin conform` checks that a plugin follows the protocol: `ready` and its protocol, `ack`
+and `done` for every invoke, an answer to every request (unknown ones included), unknown frames and
+fields ignored, a clean exit on `shutdown`, nothing but frames on stdout, only defined host calls. It
+runs any command, so a plugin in another language is checked the same way:
+`knobdeck-plugin conform --dir path/to/plugin -- python plugin.py`. Exit code 1 on any failure.
+
 ## Action types
 
 | Builder | Handlers | Notes |
