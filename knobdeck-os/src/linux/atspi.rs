@@ -5,6 +5,13 @@
 //! without it, a bounded walk of the app's showing objects. GTK, Qt, Firefox and LibreOffice
 //! register when the desktop's accessibility bus is up. Apps that don't (most Electron apps
 //! unless a screen reader runs) fall back to the PRIMARY selection for the selected text.
+//!
+//! Qt apps (Dolphin, Kate, Konsole) publish their tree only while accessibility is switched on
+//! for the session (`org.a11y.Status.IsEnabled`, off by default on Plasma). [`ensure_enabled`]
+//! switches it on, as a screen reader does, and waits for the target app to register.
+//!
+//! [`dolphin_selection`] reads Dolphin's selected files: each view is a list whose description
+//! ends with its folder's `file://` URL, and its selected items are the selected files.
 
 use super::bus;
 use crate::focus::Element;
@@ -20,6 +27,8 @@ const ACCESSIBLE: &str = "org.a11y.atspi.Accessible";
 const TEXT: &str = "org.a11y.atspi.Text";
 const STATE_EDITABLE: u32 = 7;
 const STATE_FOCUSED: u32 = 12;
+#[cfg_attr(not(feature = "files"), allow(dead_code))]
+const STATE_SELECTED: u32 = 23;
 const STATE_SHOWING: u32 = 25;
 const ROLE_PASSWORD_TEXT: u32 = 40;
 /// Objects visited by the fallback walk, and its time budget.
@@ -60,6 +69,37 @@ fn states(c: &Connection, o: &Obj) -> Result<u64> {
 
 fn has(states: u64, bit: u32) -> bool {
     states & (1 << bit) != 0
+}
+
+/// Switch the session's accessibility on when it is off (Qt apps then publish their trees).
+/// Returns whether it was off.
+fn ensure_enabled() -> bool {
+    let Ok(session) = bus::session() else { return false };
+    let on: bool = bus::get(&session, "org.a11y.Bus", "/org/a11y/bus", "org.a11y.Status", "IsEnabled").unwrap_or(true);
+    if on {
+        return false;
+    }
+    bus::set(&session, "org.a11y.Bus", "/org/a11y/bus", "org.a11y.Status", "IsEnabled", true).is_ok()
+}
+
+/// [`app_of`], switching accessibility on first when the app isn't there; an app needs a moment
+/// to register after that.
+fn app_of_enabling(c: &Connection, pid: u32) -> Result<Obj> {
+    if let Ok(app) = app_of(c, pid) {
+        return Ok(app);
+    }
+    if !ensure_enabled() {
+        return app_of(c, pid);
+    }
+    let deadline = Instant::now() + Duration::from_millis(2000);
+    loop {
+        std::thread::sleep(Duration::from_millis(100));
+        match app_of(c, pid) {
+            Ok(app) => return Ok(app),
+            Err(e) if Instant::now() > deadline => return Err(e),
+            Err(_) => {}
+        }
+    }
 }
 
 /// The app on the bus whose process is `pid`.
@@ -117,7 +157,7 @@ fn describe(c: &Connection, o: &Obj, pid: u32) -> Result<Element> {
 pub fn element() -> Result<Option<Element>> {
     let pid = target_pid()?;
     let c = a11y()?;
-    let app = app_of(&c, pid)?;
+    let app = app_of_enabling(&c, pid)?;
     match focused(&c, &app) {
         Some(o) => describe(&c, &o, pid).map(Some),
         None => Ok(None),
@@ -130,7 +170,7 @@ pub fn element() -> Result<Option<Element>> {
 fn atspi_text() -> Result<Option<String>> {
     let pid = target_pid()?;
     let c = a11y()?;
-    let app = app_of(&c, pid)?;
+    let app = app_of_enabling(&c, pid)?;
     let o = focused(&c, &app).ok_or_else(crate::not_exposed)?;
     let n: i32 = match call(&c, &o, TEXT, "GetNSelections", &()) {
         Ok(n) => n,
@@ -162,8 +202,126 @@ pub fn selected_text() -> Result<Option<String>> {
     }
 }
 
+/// An object's property through a plain `Properties.Get` (Qt's bridge answers that, but not the
+/// property proxy's `GetAll`).
+#[cfg_attr(not(feature = "files"), allow(dead_code))]
+fn prop<T: TryFrom<zbus::zvariant::OwnedValue>>(c: &Connection, o: &Obj, iface: &str, name: &str) -> Option<T> {
+    let v: zbus::zvariant::OwnedValue = call(c, o, "org.freedesktop.DBus.Properties", "Get", &(iface, name)).ok()?;
+    T::try_from(v).ok()
+}
+
+/// A Dolphin view: its folder and the items selected in it.
+#[cfg(feature = "files")]
+#[derive(Debug, Default)]
+pub(crate) struct DolphinView {
+    pub folder: Option<std::path::PathBuf>,
+    pub selected: Vec<std::path::PathBuf>,
+    pub focused: bool,
+}
+
+/// `… in location file:///home/me/My%20Pics` → `/home/me/My Pics` (the description is translated;
+/// the URL is its last word).
+#[cfg_attr(not(feature = "files"), allow(dead_code))]
+fn folder_of_description(desc: &str) -> Option<std::path::PathBuf> {
+    let at = desc.rfind("file://")?;
+    let rest = desc[at + "file://".len()..].trim();
+    let path = if rest.starts_with('/') { rest } else { &rest[rest.find('/')?..] };
+    let p = crate::percent_decode(path);
+    let p = if p.len() > 1 { p.trim_end_matches('/').to_string() } else { p };
+    Some(std::path::PathBuf::from(p))
+}
+
+/// Dolphin's views (one, or two in split view) in the process `pid`, with their selections.
+#[cfg(feature = "files")]
+pub(crate) fn dolphin_views(pid: u32) -> Result<Vec<DolphinView>> {
+    let c = a11y()?;
+    let app = app_of_enabling(&c, pid).map_err(|_| Error::msg("Dolphin isn't on the accessibility bus"))?;
+    let deadline = Instant::now() + Duration::from_millis(600);
+    let mut views: Vec<(bool, DolphinView)> = vec![];
+    let mut title = String::new();
+    let mut stack: Vec<Obj> = call(&c, &app, ACCESSIBLE, "GetChildren", &()).unwrap_or_default();
+    let mut seen = 0;
+    while let Some(o) = stack.pop() {
+        seen += 1;
+        if seen > WALK_LIMIT || Instant::now() > deadline {
+            break;
+        }
+        let role: String = call(&c, &o, ACCESSIBLE, "GetRoleName", &()).unwrap_or_default();
+        let s = states(&c, &o).unwrap_or(0);
+        if role == "frame" && title.is_empty() {
+            title = prop(&c, &o, ACCESSIBLE, "Name").unwrap_or_default();
+        }
+        if role == "list" {
+            let desc: String = prop(&c, &o, ACCESSIBLE, "Description").unwrap_or_default();
+            if let Some(folder) = folder_of_description(&desc) {
+                views.push((has(s, STATE_SHOWING), DolphinView { selected: selected_items(&c, &o, &folder), folder: Some(folder), focused: has(s, STATE_FOCUSED) }));
+            }
+        }
+        // Qt doesn't mark every container as showing, so walk all of them; but not into item
+        // lists and tables (a folder's items, the Places panel), which can be long.
+        if !matches!(role.as_str(), "list" | "table" | "tree" | "tree table" | "list box" | "menu" | "menu bar") {
+            stack.extend(call::<_, Vec<Obj>>(&c, &o, ACCESSIBLE, "GetChildren", &()).unwrap_or_default());
+        }
+    }
+    // Hidden views (a closed split, another tab) only when nothing is showing.
+    let any_showing = views.iter().any(|(showing, _)| *showing);
+    let mut views: Vec<DolphinView> = views.into_iter().filter(|(showing, _)| *showing || !any_showing).map(|(_, v)| v).collect();
+    // The window title names the active view's folder (its full path when Dolphin shows it).
+    let shown = title.rsplit_once(" — ").map_or(title.as_str(), |(t, _)| t).trim();
+    if !views.iter().any(|v| v.focused) {
+        let full = views.iter().position(|v| v.folder.as_deref().is_some_and(|f| f.as_os_str() == shown));
+        let named = || views.iter().position(|v| v.folder.as_deref().and_then(|f| f.file_name()).is_some_and(|n| n == shown));
+        if let Some(i) = full.or_else(named) {
+            views[i].focused = true;
+        }
+    }
+    if views.is_empty() {
+        return Err(Error::msg("Couldn't find Dolphin's folder view"));
+    }
+    Ok(views)
+}
+
+/// A view's selected items as paths in `folder`: through the `Selection` interface, else each
+/// item's SELECTED state.
+#[cfg(feature = "files")]
+fn selected_items(c: &Connection, list: &Obj, folder: &std::path::Path) -> Vec<std::path::PathBuf> {
+    const SELECTION: &str = "org.a11y.atspi.Selection";
+    let mut items: Vec<Obj> = vec![];
+    match prop::<i32>(c, list, SELECTION, "NSelectedChildren") {
+        Some(n) if n >= 0 => {
+            for i in 0..n.min(crate::files::MAX_FILES as i32) {
+                if let Ok(o) = call::<_, Obj>(c, list, SELECTION, "GetSelectedChild", &(i,)) {
+                    items.push(o);
+                }
+            }
+        }
+        _ => {
+            for o in call::<_, Vec<Obj>>(c, list, ACCESSIBLE, "GetChildren", &()).unwrap_or_default() {
+                if states(c, &o).is_ok_and(|s| has(s, STATE_SELECTED)) {
+                    items.push(o);
+                }
+            }
+        }
+    }
+    items
+        .iter()
+        .filter_map(|o| prop::<String>(c, o, ACCESSIBLE, "Name"))
+        .filter(|n| !n.is_empty() && !n.contains('/'))
+        .map(|n| folder.join(n))
+        .filter(|p| p.symlink_metadata().is_ok())
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn folder_from_dolphin_description() {
+        assert_eq!(super::folder_of_description("in a grid layout in location file:///home/me/My%20Pics"), Some("/home/me/My Pics".into()));
+        assert_eq!(super::folder_of_description("im Rasterlayout am Ort file:///home/me/"), Some("/home/me".into()));
+        assert_eq!(super::folder_of_description("in location file:///"), Some("/".into()));
+        assert_eq!(super::folder_of_description("Glob Pattern"), None);
+    }
+
     /// Prints the focused element and selection of the frontmost window.
     #[test]
     #[ignore]

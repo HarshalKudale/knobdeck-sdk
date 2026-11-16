@@ -76,7 +76,7 @@ desktop, bus}`. `knobdeck_sdk::host_process_id()` is KnobDeck's pid.
 `os::focus::element() -> Option<Element { role, editable, password, pid }>`.
 `os::selection::{text, text_via_copy(send_copy_keys)}` (1 MiB cap; never a password field).
 `os::files::{selected, current_folder}` (File Explorer / desktop, Finder (Automation permission),
-Dolphin via PRIMARY; error when the target isn't a file manager; 10 000 paths cap).
+Dolphin via AT-SPI; error when the target isn't a file manager; 10 000 paths cap).
 `os::document::path()` (macOS). `os::browser::{tab -> Tab { url, title, app_id }, is_browser,
 strip_browser_name}`. `os::pointer::{position, element_at -> Element { role, name, pid }}`.
 `os::clipboard::{types -> [Kind::Text|Files|Image|Html], text, files, image -> Image { mime, bytes }}`.

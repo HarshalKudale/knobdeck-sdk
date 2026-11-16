@@ -186,8 +186,9 @@ Where the values come from:
   On Linux, apps that aren't on the accessibility bus fall back to the PRIMARY selection.
 - **Files:** File Explorer and the desktop through the Shell's COM objects (the active tab of
   the target window), Finder through Apple Events (macOS asks once for the Automation permission
-  to control Finder), and on Linux the PRIMARY selection, which Dolphin sets to the selected
-  files. Other windows give an error ("Select files in File Explorer … first").
+  to control Finder), and on Linux Dolphin's accessibility tree (each view's folder and
+  selected items; accessibility is switched on for the session when it is off, as a screen
+  reader does). Other windows give an error ("Select files in File Explorer … first").
 - **Document:** the focused window's `AXDocument` on macOS (TextEdit, Preview, Pages, Xcode…).
   Windows and Linux have no such property: an error there.
 - **Browser:** the browser's own AppleScript on macOS (Safari and Chromium browsers; Firefox has

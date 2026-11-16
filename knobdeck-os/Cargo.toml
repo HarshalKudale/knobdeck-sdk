@@ -1,6 +1,6 @@
 [package]
 name = "knobdeck-os"
-version = "0.5.0"
+version = "0.5.1"
 edition = "2021"
 description = "Windows, focus, selection, selected files, clipboard and installed apps on Windows, macOS and Linux: one implementation for the KnobDeck host and its plugins"
 license = "MIT"
@@ -17,8 +17,8 @@ focus = ["window", "dep:windows"]
 # The target app's selected text (Linux falls back to the PRIMARY selection).
 selection = ["focus", "clipboard"]
 # The files selected in File Explorer / Finder / a Linux file manager, and the folder it shows
-# (Linux reads them from the PRIMARY selection, hence `clipboard`).
-files = ["window", "clipboard", "dep:windows"]
+# (Linux: Dolphin through AT-SPI, hence `focus`; others through PRIMARY, hence `clipboard`).
+files = ["window", "clipboard", "focus", "dep:windows"]
 # The file the target window has open (macOS `AXDocument`; an error elsewhere).
 document = ["window"]
 # The target browser's current tab: address (macOS AppleScript, Windows UI Automation) and title.

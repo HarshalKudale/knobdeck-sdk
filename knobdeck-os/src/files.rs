@@ -4,9 +4,9 @@
 //!   window that is the target, its active tab's `IFolderView`), and the desktop the same way.
 //! - macOS: Finder through Apple Events (`selection`, `insertion location`). The first read asks
 //!   for the Automation permission ("KnobDeck wants to control Finder").
-//! - Linux (GNOME, KDE Plasma): file managers that put the selected files in the PRIMARY
-//!   selection as a `text/uri-list` (Dolphin; Nautilus and Nemo where they do). The current
-//!   folder is the selection's parent; with nothing selected it isn't known.
+//! - Linux (GNOME, KDE Plasma): Dolphin through its accessibility tree (each view's folder and
+//!   selected items; the session's accessibility is switched on when it is off). Other file
+//!   managers only where they put the selected files in the PRIMARY selection.
 //!
 //! Other apps get a clear error: the target window must be a file manager.
 
