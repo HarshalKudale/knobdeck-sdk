@@ -1,0 +1,168 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CompanionMsg",
+  "description": "A frame a companion sends to the hub.",
+  "oneOf": [
+    {
+      "description": "The first frame.",
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "hello"
+        }
+      },
+      "$ref": "#/$defs/CompanionInfo",
+      "required": [
+        "type"
+      ]
+    },
+    {
+      "description": "Every [`PING_EVERY_SECS`]; answered `pong`.",
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "ping"
+        }
+      },
+      "required": [
+        "type"
+      ]
+    },
+    {
+      "description": "The answer to a hub `request`.",
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "response"
+        }
+      },
+      "$ref": "#/$defs/ActionResult",
+      "required": [
+        "type"
+      ]
+    },
+    {
+      "description": "Live state from the app (the current tool, the active layer…), for the plugin.",
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "event"
+        },
+        "event": {
+          "description": "Companion-specific name.",
+          "type": "string"
+        },
+        "payload": {
+          "description": "Event-specific data.",
+          "default": null
+        }
+      },
+      "required": [
+        "type",
+        "event"
+      ]
+    }
+  ],
+  "$defs": {
+    "CompanionInfo": {
+      "description": "The body of a companion's `hello`: who it is and which plugin it belongs to.",
+      "type": "object",
+      "properties": {
+        "protocol": {
+          "description": "The companion protocol the companion speaks.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "plugin": {
+          "description": "The KnobDeck plugin this companion belongs to (its manifest id).",
+          "type": "string"
+        },
+        "instance": {
+          "description": "Stable per install / profile / window, so a reconnect replaces the old link.",
+          "type": "string"
+        },
+        "app": {
+          "description": "The app it lives in (`photoshop`, `blender`, `chrome`…).",
+          "type": "string"
+        },
+        "app_version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "description": "What the user sees (\"Photoshop 2026\", \"Chrome — Work\").",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "version": {
+          "description": "The companion's own version.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "features": {
+          "description": "Optional companion behaviour, for the plugin to check.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "token": {
+          "description": "[`Discovery::token`], when the companion could read the discovery file.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "protocol",
+        "plugin",
+        "instance",
+        "app"
+      ]
+    },
+    "ActionResult": {
+      "description": "The body of a companion's `response`: how an action went.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "The `request` this answers.",
+          "type": "string"
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "result": {
+          "description": "When `ok`."
+        },
+        "error": {
+          "description": "When not `ok`: a message for the user.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "unsupported": {
+          "description": "When not `ok` because the app has no API for this action.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "ok"
+      ]
+    }
+  }
+}

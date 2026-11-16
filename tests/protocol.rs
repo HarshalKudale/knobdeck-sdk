@@ -322,11 +322,57 @@ fn open_dial_is_a_host_call_on_a_new_host_and_an_error_on_an_old_one() {
 }
 
 #[test]
+fn companion_requests_go_through_the_host_and_their_answers_come_back() {
+    let action = knobdeck_sdk::make_full_id("example-rust", "companion");
+    let press = |id: &str| json!({"type": "invoke", "id": id, "instance_id": "c1", "action_id": action, "trigger": "press", "inputs": {}});
+    let dir = tempfile_dir("companion");
+    let mut h = Host::start_with(&dir, json!(["companion_hub"]));
+    h.expect("ready");
+    h.send(json!({"type": "event", "event": "companion_connected", "payload": {"link": "x-1", "instance": "i", "app": "demo-app", "features": []}}));
+
+    // The companion answers.
+    h.send(press("r1"));
+    let call = h.expect("host_call");
+    assert_eq!(call["method"], "companion_request");
+    assert_eq!(call["params"], json!({"action": "say", "params": {"text": "hi"}}));
+    h.send(json!({"type": "result", "id": call["id"], "ok": true, "value": {"id": "1", "ok": true, "result": "hello"}}));
+    assert_eq!(h.expect_where("state", |m| m["instance_id"] == "c1" && m.get("label").is_some())["label"], "\"hello\"");
+
+    // The app can't do it: the companion's `unsupported` becomes the button's error.
+    h.send(press("r2"));
+    let call = h.expect("host_call");
+    h.send(json!({"type": "result", "id": call["id"], "ok": true, "value": {"id": "2", "ok": false, "unsupported": true}}));
+    assert_eq!(h.expect("error")["message"], "the app can't do this");
+
+    // No companion: the host call fails, and so does the action.
+    h.send(press("r3"));
+    let call = h.expect("host_call");
+    h.send(json!({"type": "result", "id": call["id"], "ok": false, "error": "no companion is connected"}));
+    assert_eq!(h.expect("error")["message"], "no companion is connected");
+    drop(h.stdin);
+    wait_exit(&mut h.child);
+    std::fs::remove_dir_all(&dir).ok();
+
+    // An older host: a clear error, and no host call.
+    let dir = tempfile_dir("companion-old");
+    let mut h = Host::start(&dir);
+    h.expect("ready");
+    h.send(press("r1"));
+    assert!(h.expect("error")["message"].as_str().unwrap().contains("update KnobDeck"));
+    drop(h.stdin);
+    wait_exit(&mut h.child);
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
 fn subscribed_events_reach_on_event_and_ready_lists_them() {
     let dir = tempfile_dir("events");
     let mut h = Host::start_with(&dir, json!(["events"]));
     let ready = h.expect("ready");
-    assert_eq!(ready["subscribe"], json!(["dial_opened", "dial_closed"]));
+    assert_eq!(
+        ready["subscribe"],
+        json!(["dial_opened", "dial_closed", "companion_connected", "companion_disconnected", "companion_event"])
+    );
     h.send(json!({"type": "event", "event": "dial_opened", "payload": {"profile_id": "default"}}));
     h.send(json!({"type": "event", "event": "some_future_event", "payload": 1}));
     // Still answering afterwards.

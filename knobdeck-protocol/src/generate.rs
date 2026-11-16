@@ -3,7 +3,7 @@
 //! (`KNOBDECK_BLESS=1 cargo test -p knobdeck-protocol --features schema` rewrites them).
 
 use crate::{
-    events, features, fixtures, host_calls, requests, triggers, AppState, DialOpened, HostMsg, Notify, OpenDial, PluginMsg, MIN_PROTOCOL,
+    companion, events, features, fixtures, host_calls, requests, triggers, AppState, DialOpened, HostMsg, Notify, OpenDial, PluginMsg, MIN_PROTOCOL,
     PROTOCOL,
 };
 use serde_json::Value;
@@ -12,12 +12,37 @@ use std::fmt::Write;
 
 const HEADER: &str = "Generated from the knobdeck-protocol crate (knobdeck-sdk repo). Do not edit: change the Rust\ntypes and run `KNOBDECK_BLESS=1 cargo test -p knobdeck-protocol --features schema`.";
 
-/// `(file name, schema)` for each direction.
-pub fn schemas() -> [(&'static str, Value); 2] {
+/// One direction of one layer.
+struct Dir {
+    /// Schema file under `schema/`.
+    file: &'static str,
+    /// Prefix of the TypeScript frame interfaces.
+    prefix: &'static str,
+    /// The TypeScript union (and Rust enum) name.
+    union: &'static str,
+    /// Section title in `REFERENCE.md`.
+    title: &'static str,
+    /// The fixture file and its `dir` value.
+    fixture: &'static str,
+    dir: &'static str,
+    /// The array name in `fixtures.check.ts`.
+    var: &'static str,
+    schema: Value,
+}
+
+fn directions() -> [Dir; 4] {
+    let s = |v: schemars::Schema| serde_json::to_value(v).unwrap();
     [
-        ("host-to-plugin.json", serde_json::to_value(schemars::schema_for!(HostMsg)).unwrap()),
-        ("plugin-to-host.json", serde_json::to_value(schemars::schema_for!(PluginMsg)).unwrap()),
+        Dir { file: "host-to-plugin.json", prefix: "Host", union: "HostMsg", title: "Host → plugin", fixture: fixtures::V2, dir: "to_plugin", var: "toPlugin", schema: s(schemars::schema_for!(HostMsg)) },
+        Dir { file: "plugin-to-host.json", prefix: "Plugin", union: "PluginMsg", title: "Plugin → host", fixture: fixtures::V2, dir: "to_host", var: "toHost", schema: s(schemars::schema_for!(PluginMsg)) },
+        Dir { file: "companion-to-hub.json", prefix: "Companion", union: "CompanionMsg", title: "Companion → hub (layer 2)", fixture: companion::FIXTURES_V1, dir: "to_hub", var: "toHub", schema: s(schemars::schema_for!(companion::CompanionMsg)) },
+        Dir { file: "hub-to-companion.json", prefix: "Hub", union: "HubMsg", title: "Hub → companion (layer 2)", fixture: companion::FIXTURES_V1, dir: "to_companion", var: "toCompanion", schema: s(schemars::schema_for!(companion::HubMsg)) },
     ]
+}
+
+/// `(file name, schema)` for each direction of both layers.
+pub fn schemas() -> Vec<(&'static str, Value)> {
+    directions().into_iter().map(|d| (d.file, d.schema)).collect()
 }
 
 /// Typed payloads that travel inside `event.payload`, `host_call.params` and `result.value`.
@@ -27,6 +52,12 @@ pub fn payload_defs() -> BTreeMap<String, Value> {
     g.subschema_for::<Notify>();
     g.subschema_for::<AppState>();
     g.subschema_for::<OpenDial>();
+    g.subschema_for::<companion::Link>();
+    g.subschema_for::<companion::LinkGone>();
+    g.subschema_for::<companion::LinkEvent>();
+    g.subschema_for::<companion::LinkRequest>();
+    g.subschema_for::<companion::ActionResult>();
+    g.subschema_for::<companion::Discovery>();
     g.take_definitions(true).into_iter().collect()
 }
 
@@ -40,17 +71,11 @@ fn payload_schema() -> Value {
     })
 }
 
-/// One direction: (prefix for frame names, union name, schema, fixture direction).
-fn directions() -> [(&'static str, &'static str, Value, &'static str); 2] {
-    let [(_, host), (_, plugin)] = schemas();
-    [("Host", "HostMsg", host, "to_plugin"), ("Plugin", "PluginMsg", plugin, "to_host")]
-}
-
 /// Every `$defs` entry of both schemas, by name.
 fn shared_defs() -> BTreeMap<String, Value> {
     let mut defs = payload_defs();
-    for (_, _, schema, _) in directions() {
-        if let Some(d) = schema["$defs"].as_object() {
+    for d in directions() {
+        if let Some(d) = d.schema["$defs"].as_object() {
             for (k, v) in d {
                 defs.insert(k.clone(), v.clone());
             }
@@ -190,6 +215,18 @@ pub fn typescript() -> String {
     let _ = writeln!(out, "export const PROTOCOL = {PROTOCOL};");
     let _ = writeln!(out, "/** The oldest protocol number a host still loads. */");
     let _ = writeln!(out, "export const MIN_PROTOCOL = {MIN_PROTOCOL};\n");
+    let _ = writeln!(out, "/** The companion protocol number (layer 2). */");
+    let _ = writeln!(out, "export const COMPANION_PROTOCOL = {};", companion::COMPANION_PROTOCOL);
+    let _ = writeln!(out, "/** The hub's discovery file, in KnobDeck's data folder (`Discovery`). */");
+    let _ = writeln!(out, "export const COMPANION_DISCOVERY_FILE = {:?};", companion::DISCOVERY_FILE);
+    let _ = writeln!(out, "/** The WebSocket path on the hub's port. */");
+    let _ = writeln!(out, "export const COMPANION_WS_PATH = {:?};", companion::WS_PATH);
+    let _ = writeln!(out, "/** The hub takes the first free port of `COMPANION_PORTS`. */");
+    let ports: Vec<String> = (0..companion::PORT_RANGE).map(|i| (companion::DEFAULT_PORT + i).to_string()).collect();
+    let _ = writeln!(out, "export const COMPANION_PORTS = [{}] as const;", ports.join(", "));
+    let _ = writeln!(out, "/** Ping every this many seconds; the hub drops a link silent for `COMPANION_SILENT_DROP_SECS`. */");
+    let _ = writeln!(out, "export const COMPANION_PING_EVERY_SECS = {};", companion::PING_EVERY_SECS);
+    let _ = writeln!(out, "export const COMPANION_SILENT_DROP_SECS = {};\n", companion::SILENT_DROP_SECS);
     ts_list(&mut out, "FEATURES", "Feature", "Optional host behaviour, listed in `hello.features`.", features::ALL);
     ts_list(&mut out, "EVENTS", "EventName", "Host events a plugin can subscribe to.", events::ALL);
     ts_list(&mut out, "TRIGGERS", "Trigger", "Values of `invoke.trigger`.", triggers::ALL);
@@ -203,7 +240,7 @@ pub fn typescript() -> String {
         let _ = writeln!(out, "}}\n");
     }
 
-    for (prefix, union, schema, _) in directions() {
+    for Dir { prefix, union, schema, .. } in directions() {
         let mut names = vec![];
         for v in schema["oneOf"].as_array().unwrap() {
             let tag = variant_tag(v);
@@ -235,11 +272,11 @@ pub fn typescript_fixture_check() -> String {
     let mut out = String::new();
     let _ = writeln!(out, "// {}
 ", HEADER.replace('\n', "\n// "));
-    let _ = writeln!(out, "import type {{ HostMsg, PluginMsg }} from \"./protocol\";\n");
-    for (_, union, _, dir) in directions() {
-        let name = if dir == "to_plugin" { "toPlugin" } else { "toHost" };
-        let _ = writeln!(out, "export const {name}: {union}[] = [");
-        for f in fixtures::frames(fixtures::V2, dir) {
+    let unions: Vec<&str> = directions().iter().map(|d| d.union).collect();
+    let _ = writeln!(out, "import type {{ {} }} from \"./protocol\";\n", unions.join(", "));
+    for Dir { union, var, fixture, dir, .. } in directions() {
+        let _ = writeln!(out, "export const {var}: {union}[] = [");
+        for f in fixtures::frames(fixture, dir) {
             let _ = writeln!(out, "  {f},");
         }
         let _ = writeln!(out, "];\n");
@@ -292,7 +329,7 @@ types can appear without a new protocol number; what may change is in `COMPAT.md
 instances, then `invoke`, `request` and `event` frames as the user works; `shutdown` ends it. A plugin \
 built for protocol `p` runs on hosts that support `{MIN_PROTOCOL}..={PROTOCOL}` today.\n"
     );
-    let _ = writeln!(out, "Machine-readable forms: `schema/host-to-plugin.json`, `schema/plugin-to-host.json` (JSON Schema) and `typescript/protocol.ts`.\n");
+    let _ = writeln!(out, "Machine-readable forms: `schema/*.json` (JSON Schema for each direction of both layers, and `payloads.json`) and `typescript/protocol.ts`.\n");
     let lists: [(&str, &[&str]); 5] = [
         ("Features (`hello.features`)", features::ALL),
         ("Events (`ready.subscribe`, `subscribe`, `event.event`)", events::ALL),
@@ -306,9 +343,23 @@ built for protocol `p` runs on hosts that support `{MIN_PROTOCOL}..={PROTOCOL}` 
         let _ = writeln!(out, "- **{title}:** {}", v.join(", "));
     }
     out.push('\n');
-    for (title, _, schema, dir) in [("Host → plugin", (), directions()[0].2.clone(), "to_plugin"), ("Plugin → host", (), directions()[1].2.clone(), "to_host")] {
+    for Dir { title, schema, fixture, dir, .. } in directions() {
         let _ = writeln!(out, "## {title}\n");
-        let examples = fixtures::frames(fixtures::V2, dir);
+        if dir == "to_hub" {
+            let _ = writeln!(
+                out,
+                "A companion (an add-on inside another app) dials KnobDeck's hub over a WebSocket on loopback: \
+`ws://127.0.0.1:<port>{}`, the port and a token in `{}` in KnobDeck's data folder (ports {}–{}). \
+Its `hello` names the plugin it belongs to; the plugin sees it through the `companion_*` events and host \
+calls. Companion protocol {}; same compatibility rules as the plugin protocol.\n",
+                companion::WS_PATH,
+                companion::DISCOVERY_FILE,
+                companion::DEFAULT_PORT,
+                companion::DEFAULT_PORT + companion::PORT_RANGE - 1,
+                companion::COMPANION_PROTOCOL
+            );
+        }
+        let examples = fixtures::frames(fixture, dir);
         for v in schema["oneOf"].as_array().unwrap() {
             let tag = variant_tag(v);
             let _ = writeln!(out, "### `{tag}`\n");

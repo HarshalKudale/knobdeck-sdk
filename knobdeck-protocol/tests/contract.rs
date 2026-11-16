@@ -109,6 +109,57 @@ fn every_name_is_listed_once() {
 }
 
 #[test]
+fn every_companion_frame_round_trips() {
+    use knobdeck_protocol::companion::{CompanionMsg, HubMsg, FIXTURES_V1};
+    let raw = |dir: &str| -> Vec<String> {
+        FIXTURES_V1
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .filter_map(|l| {
+                let e: serde_json::Value = serde_json::from_str(l).unwrap();
+                (e["dir"] == dir).then(|| e["frame"].to_string())
+            })
+            .collect()
+    };
+    for f in raw("to_hub") {
+        let m: CompanionMsg = serde_json::from_str(&f).unwrap_or_else(|e| panic!("{f}: {e}"));
+        assert_ne!(m, CompanionMsg::Unknown, "{f}");
+        assert_eq!(serde_json::to_string(&m).unwrap(), f);
+    }
+    for f in raw("to_companion") {
+        let m: HubMsg = serde_json::from_str(&f).unwrap_or_else(|e| panic!("{f}: {e}"));
+        assert_ne!(m, HubMsg::Unknown, "{f}");
+        assert_eq!(serde_json::to_string(&m).unwrap(), f);
+    }
+    assert_eq!(serde_json::from_str::<CompanionMsg>(r#"{"type":"later","x":1}"#).unwrap(), CompanionMsg::Unknown);
+}
+
+#[test]
+fn companion_payloads_in_the_plugin_fixtures_fit_their_types() {
+    use knobdeck_protocol::companion::{ActionResult, Link, LinkEvent, LinkGone, LinkRequest};
+    use knobdeck_protocol::{events, host_calls};
+    let mut seen = 0;
+    for f in fixtures::frames(fixtures::V2, "to_plugin") {
+        let p = f["payload"].clone();
+        match (f["type"].as_str(), f["event"].as_str()) {
+            (Some("event"), Some(events::COMPANION_CONNECTED)) => drop(serde_json::from_value::<Link>(p).unwrap()),
+            (Some("event"), Some(events::COMPANION_DISCONNECTED)) => drop(serde_json::from_value::<LinkGone>(p).unwrap()),
+            (Some("event"), Some(events::COMPANION_EVENT)) => drop(serde_json::from_value::<LinkEvent>(p).unwrap()),
+            (Some("result"), _) if f["value"].get("ok").is_some() => drop(serde_json::from_value::<ActionResult>(f["value"].clone()).unwrap()),
+            _ => continue,
+        }
+        seen += 1;
+    }
+    for f in fixtures::frames(fixtures::V2, "to_host") {
+        if f["type"] == "host_call" && f["method"] == host_calls::COMPANION_REQUEST {
+            serde_json::from_value::<LinkRequest>(f["params"].clone()).unwrap();
+            seen += 1;
+        }
+    }
+    assert_eq!(seen, 5);
+}
+
+#[test]
 fn a_null_result_value_is_not_the_same_as_none() {
     let r: HostMsg = serde_json::from_str(r#"{"type":"result","id":"1","ok":true,"value":null}"#).unwrap();
     let HostMsg::Result(r) = r else { panic!() };

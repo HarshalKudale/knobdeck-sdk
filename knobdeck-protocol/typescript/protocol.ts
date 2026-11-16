@@ -6,12 +6,24 @@ export const PROTOCOL = 2;
 /** The oldest protocol number a host still loads. */
 export const MIN_PROTOCOL = 2;
 
+/** The companion protocol number (layer 2). */
+export const COMPANION_PROTOCOL = 1;
+/** The hub's discovery file, in KnobDeck's data folder (`Discovery`). */
+export const COMPANION_DISCOVERY_FILE = "companion-hub.json";
+/** The WebSocket path on the hub's port. */
+export const COMPANION_WS_PATH = "/companion";
+/** The hub takes the first free port of `COMPANION_PORTS`. */
+export const COMPANION_PORTS = [32150, 32151, 32152, 32153, 32154] as const;
+/** Ping every this many seconds; the hub drops a link silent for `COMPANION_SILENT_DROP_SECS`. */
+export const COMPANION_PING_EVERY_SECS = 20;
+export const COMPANION_SILENT_DROP_SECS = 75;
+
 /** Optional host behaviour, listed in `hello.features`. */
-export const FEATURES = ["state_match", "events", "notify", "app_state", "open_dial"] as const;
+export const FEATURES = ["state_match", "events", "notify", "app_state", "open_dial", "companion_hub"] as const;
 export type Feature = (typeof FEATURES)[number];
 
 /** Host events a plugin can subscribe to. */
-export const EVENTS = ["focus_changed", "dial_opened", "dial_closed", "profiles_changed"] as const;
+export const EVENTS = ["focus_changed", "dial_opened", "dial_closed", "profiles_changed", "companion_connected", "companion_disconnected", "companion_event"] as const;
 export type EventName = (typeof EVENTS)[number];
 
 /** Values of `invoke.trigger`. */
@@ -23,8 +35,21 @@ export const REQUESTS = ["query", "wheel"] as const;
 export type RequestMethod = (typeof REQUESTS)[number];
 
 /** Values of `host_call.method`. */
-export const HOST_CALLS = ["send_keys", "notify", "app_state", "open_dial"] as const;
+export const HOST_CALLS = ["send_keys", "notify", "app_state", "open_dial", "companion_request", "companion_links"] as const;
 export type HostCallMethod = (typeof HOST_CALLS)[number];
+
+/** The body of a companion's `response`: how an action went. */
+export interface ActionResult {
+  /** The `request` this answers. */
+  id: string;
+  ok: boolean;
+  /** When `ok`. */
+  result?: unknown;
+  /** When not `ok`: a message for the user. */
+  error?: string;
+  /** When not `ok` because the app has no API for this action. */
+  unsupported?: boolean;
+}
 
 /** The answer to the `app_state` host call. */
 export interface AppState {
@@ -47,10 +72,45 @@ export interface CallResult {
   error?: string;
 }
 
+/** The body of a companion's `hello`: who it is and which plugin it belongs to. */
+export interface CompanionInfo {
+  /** The companion protocol the companion speaks. */
+  protocol: number;
+  /** The KnobDeck plugin this companion belongs to (its manifest id). */
+  plugin: string;
+  /** Stable per install / profile / window, so a reconnect replaces the old link. */
+  instance: string;
+  /** The app it lives in (`photoshop`, `blender`, `chrome`…). */
+  app: string;
+  app_version?: string;
+  /** What the user sees ("Photoshop 2026", "Chrome — Work"). */
+  name?: string;
+  /** The companion's own version. */
+  version?: string;
+  /** Optional companion behaviour, for the plugin to check. */
+  features?: string[];
+  /** `Discovery::token`, when the companion could read the discovery file. */
+  token?: string;
+}
+
 /** Payload of the `dial_opened` event. */
 export interface DialOpened {
   /** The profile the dial shows. */
   profile_id: string;
+}
+
+/** What the hub writes to `DISCOVERY_FILE`. */
+export interface Discovery {
+  protocol: number;
+  /** The hub's loopback port. */
+  port: number;
+  /** `WS_PATH`. */
+  path: string;
+  /**
+   * Sent back in `hello.token`. A companion that can't read files (a browser extension)
+   * connects without it, from an extension origin.
+   */
+  token: string;
 }
 
 /** The body of an `error` frame: what failed, and who gets it. */
@@ -116,6 +176,44 @@ export interface Invoke {
   inputs?: unknown;
   /** Set when a dynamic wheel's child button was pressed. */
   child_id?: string;
+}
+
+/** One connected companion, as the plugin sees it (`companion_connected`, `companion_links`). */
+export interface Link {
+  /** The hub's id for this link; pass it to `companion_request`. */
+  link: string;
+  instance: string;
+  app: string;
+  app_version?: string;
+  name?: string;
+  version?: string;
+  features?: string[];
+}
+
+/** Payload of `companion_event`. */
+export interface LinkEvent {
+  link: string;
+  /** The companion's event name. */
+  event: string;
+  payload?: unknown;
+}
+
+/** Payload of `companion_disconnected`. */
+export interface LinkGone {
+  link: string;
+}
+
+/** `params` of the `companion_request` host call. */
+export interface LinkRequest {
+  /**
+   * A link from `companion_connected` / `companion_links`; absent: the most recently
+   * connected link of this plugin.
+   */
+  link?: string;
+  action: string;
+  params?: unknown;
+  /** How long to wait for the companion (default 5000, at most 30000). */
+  timeout_ms?: number;
 }
 
 /** `params` of the `notify` host call. */
@@ -290,3 +388,72 @@ export type PluginMsg =
   | PluginHostCall
   | PluginSubscribe
   | PluginSetupRequired;
+
+/** The first frame. */
+export interface CompanionHello extends CompanionInfo {
+  type: "hello";
+}
+
+/** Every `PING_EVERY_SECS`; answered `pong`. */
+export interface CompanionPing {
+  type: "ping";
+}
+
+/** The answer to a hub `request`. */
+export interface CompanionResponse extends ActionResult {
+  type: "response";
+}
+
+/** Live state from the app (the current tool, the active layer…), for the plugin. */
+export interface CompanionEvent {
+  type: "event";
+  /** Companion-specific name. */
+  event: string;
+  /** Event-specific data. */
+  payload?: unknown;
+}
+
+/** A frame a companion sends to the hub. */
+export type CompanionMsg =
+  | CompanionHello
+  | CompanionPing
+  | CompanionResponse
+  | CompanionEvent;
+
+/** `hello` was accepted; the link is up. */
+export interface HubReady {
+  type: "ready";
+  /** The companion protocol the hub speaks. */
+  protocol: number;
+  /** The id the plugin knows this link by. */
+  link: string;
+  host_version: string;
+}
+
+/** `hello` was refused; the hub closes the socket after this. */
+export interface HubRefused {
+  type: "refused";
+  /** Why, for the companion's log or UI. */
+  reason: string;
+}
+
+/** The answer to `ping`. */
+export interface HubPong {
+  type: "pong";
+}
+
+/** Run an action in the app; answered by a `response` with the same `id`. */
+export interface HubRequest {
+  type: "request";
+  id: string;
+  /** Companion-specific action id. */
+  action: string;
+  params?: unknown;
+}
+
+/** A frame the hub sends to a companion. */
+export type HubMsg =
+  | HubReady
+  | HubRefused
+  | HubPong
+  | HubRequest;

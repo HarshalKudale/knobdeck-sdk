@@ -3,7 +3,7 @@
 
 use knobdeck_sdk::input::{self, InputExt};
 use knobdeck_sdk::protocol::events;
-use knobdeck_sdk::{json, Action, Plugin, Visual};
+use knobdeck_sdk::{companion, json, Action, Plugin, Visual};
 use std::time::Duration;
 
 fn main() {
@@ -75,10 +75,21 @@ fn main() {
             ctx.set_label(if opened { "opened" } else { "already open" });
             Ok(())
         }))
-        // Host events (a KnobDeck with the `events` feature sends these).
+        .action(Action::button("companion", "Companion (hub demo)").on_press(|ctx| {
+            // The companion's answer: its result, or its error on the button.
+            let answer = companion::request(None, "say", json!({"text": "hi"}))?;
+            let v = companion::check(answer)?;
+            ctx.set_label(v.to_string());
+            Ok(())
+        }))
+        // Host events (a KnobDeck with the `events` feature sends these), and companions.
         .subscribe(&[events::DIAL_OPENED, events::DIAL_CLOSED])
+        .companions()
         .on_event(|ev, rt| {
-            rt.log(format!("event {} {}", ev.name, ev.payload));
+            match companion::parse(ev) {
+                Some(companion::Update::Connected(link)) => rt.log(format!("companion {} connected", link.app)),
+                _ => rt.log(format!("event {} {}", ev.name, ev.payload)),
+            }
             Ok(())
         })
         .query("groups", |_| Ok(json!([{"value": "fruit", "label": "Fruit"}, {"value": "veg", "label": "Veg"}])))

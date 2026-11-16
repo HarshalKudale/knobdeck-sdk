@@ -1,0 +1,11 @@
+{"dir":"to_hub","frame":{"type":"hello","protocol":1,"plugin":"photoshop","instance":"6f1c2b9e-ps-2026","app":"photoshop","app_version":"27.1.0","name":"Photoshop 2026","version":"1.0.0","features":["layers"],"token":"3b6e…"}}
+{"dir":"to_hub","frame":{"type":"hello","protocol":1,"plugin":"browser-plugin","instance":"a4d0-chrome-work","app":"chrome","features":[]}}
+{"dir":"to_hub","frame":{"type":"ping"}}
+{"dir":"to_hub","frame":{"type":"response","id":"7","ok":true,"result":{"tool":"brush"}}}
+{"dir":"to_hub","frame":{"type":"response","id":"8","ok":false,"error":"No document is open"}}
+{"dir":"to_hub","frame":{"type":"response","id":"9","ok":false,"unsupported":true}}
+{"dir":"to_hub","frame":{"type":"event","event":"tool_changed","payload":{"tool":"eraser"}}}
+{"dir":"to_companion","frame":{"type":"ready","protocol":1,"link":"photoshop-1","host_version":"1.0.0"}}
+{"dir":"to_companion","frame":{"type":"refused","reason":"wrong token"}}
+{"dir":"to_companion","frame":{"type":"pong"}}
+{"dir":"to_companion","frame":{"type":"request","id":"7","action":"set-tool","params":{"tool":"brush"}}}

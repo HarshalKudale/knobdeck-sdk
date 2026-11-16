@@ -11,6 +11,7 @@
 //! host ack is sent before the handler starts.
 
 mod codegen;
+pub mod companion;
 mod context;
 mod ctx;
 mod error;

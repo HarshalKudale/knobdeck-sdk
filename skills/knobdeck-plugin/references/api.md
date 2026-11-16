@@ -58,6 +58,7 @@ Fields: `instance_id`, `action_id`, `trigger` (`press`, `adjust`, `hold_start`, 
 | `toast(msg)` | short message to the user (`notify` feature; plugin log on older hosts) |
 | `app_state()` | `AppState { os, host_version, dial_open }` (`app_state` feature; error on older hosts) |
 | `open_dial(Some("profile"))` | open the dial (`open_dial` feature): `Ok(true)` opened, `Ok(false)` already open; unknown profiles and rapid repeats are refused |
+| `Plugin::companions()` + `companion::{parse, request, check, links}` | app-side companions through KnobDeck's hub (`companion_hub` feature); see the `companion` module docs |
 | `focus_app(app)` | os-window: the app's frontmost window to the front (in this process) |
 | `installed_apps()` | os-apps: cached `Vec<InstalledApp>` (`label`, `value`, `executable`, `working_dir`) |
 | `window()` `focus()` `selection()` `files()` `folder()` `clipboard_text()` `clipboard_files()` `document()` `browser_tab()` `pointer()` | OS context, read once per press (lazy; prefetched by `.needs`) |

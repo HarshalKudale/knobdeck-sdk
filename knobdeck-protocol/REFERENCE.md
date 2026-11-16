@@ -6,15 +6,15 @@ A plugin is a process KnobDeck starts. The two talk over the plugin's stdin and 
 
 A session: the host sends `hello`; the plugin answers `ready`; the host sends `sync` with the placed instances, then `invoke`, `request` and `event` frames as the user works; `shutdown` ends it. A plugin built for protocol `p` runs on hosts that support `2..=2` today.
 
-Machine-readable forms: `schema/host-to-plugin.json`, `schema/plugin-to-host.json` (JSON Schema) and `typescript/protocol.ts`.
+Machine-readable forms: `schema/*.json` (JSON Schema for each direction of both layers, and `payloads.json`) and `typescript/protocol.ts`.
 
 ## Names
 
-- **Features (`hello.features`):** `state_match`, `events`, `notify`, `app_state`, `open_dial`
-- **Events (`ready.subscribe`, `subscribe`, `event.event`):** `focus_changed`, `dial_opened`, `dial_closed`, `profiles_changed`
+- **Features (`hello.features`):** `state_match`, `events`, `notify`, `app_state`, `open_dial`, `companion_hub`
+- **Events (`ready.subscribe`, `subscribe`, `event.event`):** `focus_changed`, `dial_opened`, `dial_closed`, `profiles_changed`, `companion_connected`, `companion_disconnected`, `companion_event`
 - **Triggers (`invoke.trigger`):** `press`, `hold_start`, `hold_end`, `adjust`
 - **Request methods (`request.method`):** `query`, `wheel`
-- **Host calls (`host_call.method`):** `send_keys`, `notify`, `app_state`, `open_dial`
+- **Host calls (`host_call.method`):** `send_keys`, `notify`, `app_state`, `open_dial`, `companion_request`, `companion_links`
 
 ## Host → plugin
 
@@ -34,7 +34,7 @@ The body of `hello`: who the plugin is and what the host can do.
 | `host_pid` | `number` | no | The host's process id, so a plugin can leave KnobDeck's own windows out of "the target window". |
 
 ```json
-{"type":"hello","protocol":2,"plugin_id":"example-rust","data_dir":"/tmp/knobdeck/plugin-data/example-rust","host_version":"1.0.0","features":["state_match","events","notify","app_state","open_dial"],"host_pid":4242}
+{"type":"hello","protocol":2,"plugin_id":"example-rust","data_dir":"/tmp/knobdeck/plugin-data/example-rust","host_version":"1.0.0","features":["state_match","events","notify","app_state","open_dial","companion_hub"],"host_pid":4242}
 ```
 
 ### `sync`
@@ -97,6 +97,9 @@ A host event the plugin subscribed to.
 {"type":"event","event":"focus_changed","payload":{"app":"code.exe"}}
 {"type":"event","event":"dial_opened","payload":{"profile_id":"default"}}
 {"type":"event","event":"dial_closed","payload":{}}
+{"type":"event","event":"companion_connected","payload":{"link":"photoshop-1","instance":"6f1c2b9e-ps-2026","app":"photoshop","app_version":"27.1.0","name":"Photoshop 2026","version":"1.0.0","features":["layers"]}}
+{"type":"event","event":"companion_event","payload":{"link":"photoshop-1","event":"tool_changed","payload":{"tool":"eraser"}}}
+{"type":"event","event":"companion_disconnected","payload":{"link":"photoshop-1"}}
 ```
 
 ### `result`
@@ -116,6 +119,7 @@ The answer to a plugin's `host_call`.
 {"type":"result","id":"h1","ok":true,"value":null}
 {"type":"result","id":"h2","ok":false,"error":"not possible"}
 {"type":"result","id":"c2","ok":true,"value":{"os":"linux","host_version":"1.0.0","dial_open":false}}
+{"type":"result","id":"c5","ok":true,"value":{"id":"7","ok":true,"result":{"tool":"brush"}}}
 ```
 
 ### `shutdown`
@@ -242,6 +246,8 @@ Ask the host to do something; answered by a `result` with the same `id`.
 {"type":"host_call","id":"c2","method":"notify","params":{"message":"Copied","level":"info"}}
 {"type":"host_call","id":"c3","method":"app_state","params":{}}
 {"type":"host_call","id":"c4","method":"open_dial","params":{"profile_id":"streaming"}}
+{"type":"host_call","id":"c5","method":"companion_request","params":{"link":"photoshop-1","action":"set-tool","params":{"tool":"brush"},"timeout_ms":5000}}
+{"type":"host_call","id":"c6","method":"companion_links","params":{}}
 ```
 
 ### `subscribe`
@@ -269,9 +275,143 @@ The plugin's setup is no longer valid (an expired token…); the host asks the u
 {"type":"setup_required","reason":"demo token expired"}
 ```
 
+## Companion → hub (layer 2)
+
+A companion (an add-on inside another app) dials KnobDeck's hub over a WebSocket on loopback: `ws://127.0.0.1:<port>/companion`, the port and a token in `companion-hub.json` in KnobDeck's data folder (ports 32150–32154). Its `hello` names the plugin it belongs to; the plugin sees it through the `companion_*` events and host calls. Companion protocol 1; same compatibility rules as the plugin protocol.
+
+### `hello`
+
+The first frame.
+
+The body of a companion's `hello`: who it is and which plugin it belongs to.
+
+| Field | Type | Required | Meaning |
+|---|---|---|---|
+| `protocol` | `number` | yes | The companion protocol the companion speaks. |
+| `plugin` | `string` | yes | The KnobDeck plugin this companion belongs to (its manifest id). |
+| `instance` | `string` | yes | Stable per install / profile / window, so a reconnect replaces the old link. |
+| `app` | `string` | yes | The app it lives in (`photoshop`, `blender`, `chrome`…). |
+| `app_version` | `string` | no |  |
+| `name` | `string` | no | What the user sees ("Photoshop 2026", "Chrome — Work"). |
+| `version` | `string` | no | The companion's own version. |
+| `features` | `string[]` | no | Optional companion behaviour, for the plugin to check. |
+| `token` | `string` | no | `Discovery::token`, when the companion could read the discovery file. |
+
+```json
+{"type":"hello","protocol":1,"plugin":"photoshop","instance":"6f1c2b9e-ps-2026","app":"photoshop","app_version":"27.1.0","name":"Photoshop 2026","version":"1.0.0","features":["layers"],"token":"3b6e…"}
+{"type":"hello","protocol":1,"plugin":"browser-plugin","instance":"a4d0-chrome-work","app":"chrome","features":[]}
+```
+
+### `ping`
+
+Every `PING_EVERY_SECS`; answered `pong`.
+
+No fields besides `type`.
+
+```json
+{"type":"ping"}
+```
+
+### `response`
+
+The answer to a hub `request`.
+
+The body of a companion's `response`: how an action went.
+
+| Field | Type | Required | Meaning |
+|---|---|---|---|
+| `id` | `string` | yes | The `request` this answers. |
+| `ok` | `boolean` | yes |  |
+| `result` | `unknown` | no | When `ok`. |
+| `error` | `string` | no | When not `ok`: a message for the user. |
+| `unsupported` | `boolean` | no | When not `ok` because the app has no API for this action. |
+
+```json
+{"type":"response","id":"7","ok":true,"result":{"tool":"brush"}}
+{"type":"response","id":"8","ok":false,"error":"No document is open"}
+{"type":"response","id":"9","ok":false,"unsupported":true}
+```
+
+### `event`
+
+Live state from the app (the current tool, the active layer…), for the plugin.
+
+| Field | Type | Required | Meaning |
+|---|---|---|---|
+| `event` | `string` | yes | Companion-specific name. |
+| `payload` | `unknown` | no | Event-specific data. |
+
+```json
+{"type":"event","event":"tool_changed","payload":{"tool":"eraser"}}
+```
+
+## Hub → companion (layer 2)
+
+### `ready`
+
+`hello` was accepted; the link is up.
+
+| Field | Type | Required | Meaning |
+|---|---|---|---|
+| `protocol` | `number` | yes | The companion protocol the hub speaks. |
+| `link` | `string` | yes | The id the plugin knows this link by. |
+| `host_version` | `string` | yes |  |
+
+```json
+{"type":"ready","protocol":1,"link":"photoshop-1","host_version":"1.0.0"}
+```
+
+### `refused`
+
+`hello` was refused; the hub closes the socket after this.
+
+| Field | Type | Required | Meaning |
+|---|---|---|---|
+| `reason` | `string` | yes | Why, for the companion's log or UI. |
+
+```json
+{"type":"refused","reason":"wrong token"}
+```
+
+### `pong`
+
+The answer to `ping`.
+
+No fields besides `type`.
+
+```json
+{"type":"pong"}
+```
+
+### `request`
+
+Run an action in the app; answered by a `response` with the same `id`.
+
+| Field | Type | Required | Meaning |
+|---|---|---|---|
+| `id` | `string` | yes |  |
+| `action` | `string` | yes | Companion-specific action id. |
+| `params` | `unknown` | no |  |
+
+```json
+{"type":"request","id":"7","action":"set-tool","params":{"tool":"brush"}}
+```
+
 ## Payloads
 
 Typed contents of `event.payload`, `host_call.params` and `result.value`; see the event and host call names above.
+
+### `ActionResult`
+
+The body of a companion's `response`: how an action went.
+
+| Field | Type | Required | Meaning |
+|---|---|---|---|
+| `id` | `string` | yes | The `request` this answers. |
+| `ok` | `boolean` | yes |  |
+| `result` | `unknown` | no | When `ok`. |
+| `error` | `string` | no | When not `ok`: a message for the user. |
+| `unsupported` | `boolean` | no | When not `ok` because the app has no API for this action. |
 
 ### `AppState`
 
@@ -290,6 +430,60 @@ Payload of the `dial_opened` event.
 | Field | Type | Required | Meaning |
 |---|---|---|---|
 | `profile_id` | `string` | yes | The profile the dial shows. |
+
+### `Discovery`
+
+What the hub writes to `DISCOVERY_FILE`.
+
+| Field | Type | Required | Meaning |
+|---|---|---|---|
+| `protocol` | `number` | yes |  |
+| `port` | `number` | yes | The hub's loopback port. |
+| `path` | `string` | yes | `WS_PATH`. |
+| `token` | `string` | yes | Sent back in `hello.token`. A companion that can't read files (a browser extension) connects without it, from an extension origin. |
+
+### `Link`
+
+One connected companion, as the plugin sees it (`companion_connected`, `companion_links`).
+
+| Field | Type | Required | Meaning |
+|---|---|---|---|
+| `link` | `string` | yes | The hub's id for this link; pass it to `companion_request`. |
+| `instance` | `string` | yes |  |
+| `app` | `string` | yes |  |
+| `app_version` | `string` | no |  |
+| `name` | `string` | no |  |
+| `version` | `string` | no |  |
+| `features` | `string[]` | no |  |
+
+### `LinkEvent`
+
+Payload of `companion_event`.
+
+| Field | Type | Required | Meaning |
+|---|---|---|---|
+| `link` | `string` | yes |  |
+| `event` | `string` | yes | The companion's event name. |
+| `payload` | `unknown` | no |  |
+
+### `LinkGone`
+
+Payload of `companion_disconnected`.
+
+| Field | Type | Required | Meaning |
+|---|---|---|---|
+| `link` | `string` | yes |  |
+
+### `LinkRequest`
+
+`params` of the `companion_request` host call.
+
+| Field | Type | Required | Meaning |
+|---|---|---|---|
+| `link` | `string` | no | A link from `companion_connected` / `companion_links`; absent: the most recently connected link of this plugin. |
+| `action` | `string` | yes |  |
+| `params` | `unknown` | no |  |
+| `timeout_ms` | `number` | no | How long to wait for the companion (default 5000, at most 30000). |
 
 ### `Notify`
 

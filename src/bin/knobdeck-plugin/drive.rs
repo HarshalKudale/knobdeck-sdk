@@ -125,6 +125,11 @@ impl Host {
                 println!("  ◎ open_dial {}", msg["params"]);
                 CallResult::ok(id, Value::Bool(true))
             }
+            host_calls::COMPANION_LINKS => CallResult::ok(id, Value::Array(vec![])),
+            host_calls::COMPANION_REQUEST => {
+                println!("  ⇄ companion_request {} (drive has no companions)", msg["params"]);
+                CallResult::err(id, "no companion is connected")
+            }
             host_calls::APP_STATE => {
                 let st = AppState { os: std::env::consts::OS.into(), host_version: "knobdeck-plugin drive".into(), dial_open: false };
                 CallResult::ok(id, serde_json::to_value(st).expect("serializes"))

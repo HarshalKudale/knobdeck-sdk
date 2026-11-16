@@ -52,8 +52,12 @@ pub mod features {
     /// The host takes the [`open_dial`](crate::host_calls::OPEN_DIAL) host call.
     pub const OPEN_DIAL: &str = "open_dial";
 
+    /// The host runs the companion hub: the `companion_*` events and host calls
+    /// ([`crate::companion`]).
+    pub const COMPANION_HUB: &str = "companion_hub";
+
     /// Every feature defined by this version of the protocol.
-    pub const ALL: &[&str] = &[STATE_MATCH, EVENTS, NOTIFY, APP_STATE, OPEN_DIAL];
+    pub const ALL: &[&str] = &[STATE_MATCH, EVENTS, NOTIFY, APP_STATE, OPEN_DIAL, COMPANION_HUB];
 }
 
 /// Host events a plugin can subscribe to (`ready.subscribe`, `subscribe`).
@@ -73,7 +77,25 @@ pub mod events {
     /// `sync`). Payload: `{}`. Needs `events`.
     pub const PROFILES_CHANGED: &str = "profiles_changed";
 
-    pub const ALL: &[&str] = &[FOCUS_CHANGED, DIAL_OPENED, DIAL_CLOSED, PROFILES_CHANGED];
+    /// A companion of this plugin connected to the hub. Payload: [`Link`](crate::companion::Link).
+    /// Subscribing to it is how a plugin accepts companions. Needs `companion_hub`.
+    pub const COMPANION_CONNECTED: &str = "companion_connected";
+
+    /// A companion link closed. Payload: [`LinkGone`](crate::companion::LinkGone). Needs `companion_hub`.
+    pub const COMPANION_DISCONNECTED: &str = "companion_disconnected";
+
+    /// A companion sent an event. Payload: [`LinkEvent`](crate::companion::LinkEvent). Needs `companion_hub`.
+    pub const COMPANION_EVENT: &str = "companion_event";
+
+    pub const ALL: &[&str] = &[
+        FOCUS_CHANGED,
+        DIAL_OPENED,
+        DIAL_CLOSED,
+        PROFILES_CHANGED,
+        COMPANION_CONNECTED,
+        COMPANION_DISCONNECTED,
+        COMPANION_EVENT,
+    ];
 }
 
 /// Values of [`Invoke::trigger`].
@@ -115,9 +137,19 @@ pub mod host_calls {
     /// `open_dial` feature.
     pub const OPEN_DIAL: &str = "open_dial";
 
-    pub const ALL: &[&str] = &[SEND_KEYS, NOTIFY, APP_STATE, OPEN_DIAL];
+    /// `params`: [`LinkRequest`](crate::companion::LinkRequest). Run an action in a companion; answers the
+    /// companion's [`ActionResult`](crate::companion::ActionResult) (its `ok: false` included). The call itself
+    /// fails only when there is no such link or the companion didn't answer in time. Needs `companion_hub`.
+    pub const COMPANION_REQUEST: &str = "companion_request";
+
+    /// `params`: `{}`. Answers this plugin's connected companions, a list of
+    /// [`Link`](crate::companion::Link). Needs `companion_hub`.
+    pub const COMPANION_LINKS: &str = "companion_links";
+
+    pub const ALL: &[&str] = &[SEND_KEYS, NOTIFY, APP_STATE, OPEN_DIAL, COMPANION_REQUEST, COMPANION_LINKS];
 }
 
+pub mod companion;
 #[cfg(feature = "schema")]
 pub mod generate;
 
