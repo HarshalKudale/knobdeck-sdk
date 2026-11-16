@@ -97,6 +97,23 @@ test("requests run the registered action; unknown and Unsupported answer unsuppo
   c.stop();
 });
 
+test("fallback handles actions without their own handler; own handlers win", async () => {
+  const c = companion()
+    .action("own", () => "mine")
+    .fallback((action, params) => ({ action, params }))
+    .start();
+  const ws = FakeSocket.all[0];
+  ws.open();
+  ws.hub({ type: "ready", protocol: 1, link: "l", host_version: "1" });
+  ws.hub({ type: "request", id: "1", action: "own", params: {} });
+  ws.hub({ type: "request", id: "2", action: "editor.action.formatDocument", params: { x: 1 } });
+  await tick(); await tick();
+  const byId = Object.fromEntries(ws.sent.filter((m) => m.type === "response").map((m) => [m.id, m]));
+  assert.equal(byId["1"].result, "mine");
+  assert.deepEqual(byId["2"].result, { action: "editor.action.formatDocument", params: { x: 1 } });
+  c.stop();
+});
+
 test("emit sends events only while linked; unknown hub frames are ignored", () => {
   const c = companion().start();
   const ws = FakeSocket.all[0];

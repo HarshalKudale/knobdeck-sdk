@@ -82,6 +82,7 @@ const OPEN = 1;
 export class Companion {
   readonly #opts: CompanionOptions;
   readonly #handlers = new Map<string, ActionHandler>();
+  #fallback: ((action: string, params: unknown) => unknown | Promise<unknown>) | undefined;
   #ws: SocketLike | null = null;
   #link: string | undefined;
   #port = 0;
@@ -99,6 +100,13 @@ export class Companion {
   /** Register what `action` does in the app. Unregistered actions answer `unsupported`. */
   action(name: string, handler: ActionHandler): this {
     this.#handlers.set(name, handler);
+    return this;
+  }
+
+  /** Handle every action without its own `action()` handler (for apps whose action ids are open
+   * ended, like editor command ids). Without it those answer `unsupported`. */
+  fallback(handler: (action: string, params: unknown) => unknown | Promise<unknown>): this {
+    this.#fallback = handler;
     return this;
   }
 
@@ -207,7 +215,9 @@ export class Companion {
   }
 
   async #run(id: string, action: string, params: unknown): Promise<void> {
-    const handler = this.#handlers.get(action);
+    const own = this.#handlers.get(action);
+    const fb = this.#fallback;
+    const handler: ActionHandler | undefined = own ?? (fb ? (p: unknown) => fb(action, p) : undefined);
     let answer: ActionResult;
     if (!handler) {
       answer = { id, ok: false, unsupported: true };
