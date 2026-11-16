@@ -1,14 +1,14 @@
 //! Host calls: what only KnobDeck itself can do, asked for over the protocol (`host_call`).
 //!
 //! `send_keys`: keystrokes must come from the app (on Linux, from KnobDeck's uinput device).
-//! `toast` and `app_state` need a host that lists the matching feature in `hello`; on an older one
-//! `toast` writes to the plugin log and `app_state` returns an error. Focusing apps and listing
+//! `toast`, `app_state` and `open_dial` need a host that lists the matching feature in `hello`; on an older one
+//! `toast` writes to the plugin log and the others return an error. Focusing apps and listing
 //! installed apps happen in the plugin's own process through [`crate::os`].
 
 use crate::error::{Error, Result};
 use crate::log::log;
 use crate::runtime::global;
-use knobdeck_protocol::{features, host_calls, AppState, Notify};
+use knobdeck_protocol::{features, host_calls, AppState, Notify, OpenDial};
 use serde_json::{json, Value};
 
 fn call(method: &str, params: Value) -> Result<Value> {
@@ -57,4 +57,17 @@ pub fn app_state() -> Result<AppState> {
     }
     let v = rt.host_call(host_calls::APP_STATE, json!({}))?;
     serde_json::from_value(v).map_err(|e| Error::msg(format!("app_state: unexpected answer ({e})")))
+}
+
+/// Open the dial: on `profile_id`, or on the profile the user's auto-open rules pick when `None`.
+/// `Ok(true)` when it opened, `Ok(false)` when it was already open. KnobDeck refuses unknown
+/// profiles and calls closer than a few seconds apart; an older KnobDeck returns an error.
+pub fn open_dial(profile_id: Option<&str>) -> Result<bool> {
+    let rt = global().ok_or_else(|| Error::msg("KnobDeck host bridge is not connected"))?;
+    if !rt.has_feature(features::OPEN_DIAL) {
+        return Err(Error::msg("this KnobDeck is too old to open the dial for a plugin; update KnobDeck"));
+    }
+    let params = OpenDial { profile_id: profile_id.map(str::to_string) };
+    let v = rt.host_call(host_calls::OPEN_DIAL, serde_json::to_value(params).expect("serializes"))?;
+    Ok(v.as_bool().unwrap_or(false))
 }

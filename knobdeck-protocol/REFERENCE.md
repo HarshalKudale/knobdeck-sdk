@@ -10,11 +10,11 @@ Machine-readable forms: `schema/host-to-plugin.json`, `schema/plugin-to-host.jso
 
 ## Names
 
-- **Features (`hello.features`):** `state_match`, `events`, `notify`, `app_state`
+- **Features (`hello.features`):** `state_match`, `events`, `notify`, `app_state`, `open_dial`
 - **Events (`ready.subscribe`, `subscribe`, `event.event`):** `focus_changed`, `dial_opened`, `dial_closed`, `profiles_changed`
 - **Triggers (`invoke.trigger`):** `press`, `hold_start`, `hold_end`, `adjust`
 - **Request methods (`request.method`):** `query`, `wheel`
-- **Host calls (`host_call.method`):** `send_keys`, `notify`, `app_state`
+- **Host calls (`host_call.method`):** `send_keys`, `notify`, `app_state`, `open_dial`
 
 ## Host → plugin
 
@@ -34,7 +34,7 @@ The body of `hello`: who the plugin is and what the host can do.
 | `host_pid` | `number` | no | The host's process id, so a plugin can leave KnobDeck's own windows out of "the target window". |
 
 ```json
-{"type":"hello","protocol":2,"plugin_id":"example-rust","data_dir":"/tmp/knobdeck/plugin-data/example-rust","host_version":"1.0.0","features":["state_match","events","notify","app_state"],"host_pid":4242}
+{"type":"hello","protocol":2,"plugin_id":"example-rust","data_dir":"/tmp/knobdeck/plugin-data/example-rust","host_version":"1.0.0","features":["state_match","events","notify","app_state","open_dial"],"host_pid":4242}
 ```
 
 ### `sync`
@@ -241,6 +241,7 @@ Ask the host to do something; answered by a `result` with the same `id`.
 {"type":"host_call","id":"c1","method":"send_keys","params":{"keys":"ctrl+m"}}
 {"type":"host_call","id":"c2","method":"notify","params":{"message":"Copied","level":"info"}}
 {"type":"host_call","id":"c3","method":"app_state","params":{}}
+{"type":"host_call","id":"c4","method":"open_dial","params":{"profile_id":"streaming"}}
 ```
 
 ### `subscribe`
@@ -298,3 +299,11 @@ Payload of the `dial_opened` event.
 |---|---|---|---|
 | `message` | `string` | yes | One short sentence. The host may shorten long text. |
 | `level` | `string` | no | `info` (default) or `error`. Unknown values read as `info`. |
+
+### `OpenDial`
+
+`params` of the `open_dial` host call.
+
+| Field | Type | Required | Meaning |
+|---|---|---|---|
+| `profile_id` | `string` | no | The dial profile to show. Absent: the one the user's auto-open rules pick, as the dial keybind does. |

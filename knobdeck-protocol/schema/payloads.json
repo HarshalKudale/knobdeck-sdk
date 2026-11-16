@@ -57,6 +57,19 @@
         "message"
       ],
       "description": "`params` of the `notify` host call."
+    },
+    "OpenDial": {
+      "type": "object",
+      "properties": {
+        "profile_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The dial profile to show. Absent: the one the user's auto-open rules pick, as the dial\nkeybind does."
+        }
+      },
+      "description": "`params` of the `open_dial` host call."
     }
   }
 }

@@ -70,6 +70,11 @@ fn main() {
             ctx.set_visual(Visual::new().label(format!("{} {}", st.os, st.host_version)));
             Ok(())
         }))
+        .action(Action::button("open-dial", "Open dial (open_dial demo)").on_press(|ctx| {
+            let opened = ctx.open_dial(Some("default"))?;
+            ctx.set_label(if opened { "opened" } else { "already open" });
+            Ok(())
+        }))
         // Host events (a KnobDeck with the `events` feature sends these).
         .subscribe(&[events::DIAL_OPENED, events::DIAL_CLOSED])
         .on_event(|ev, rt| {

@@ -121,6 +121,10 @@ impl Host {
                 println!("  ✉ toast: {}", msg["params"]["message"].as_str().unwrap_or(""));
                 CallResult::ok(id, Value::Null)
             }
+            host_calls::OPEN_DIAL => {
+                println!("  ◎ open_dial {}", msg["params"]);
+                CallResult::ok(id, Value::Bool(true))
+            }
             host_calls::APP_STATE => {
                 let st = AppState { os: std::env::consts::OS.into(), host_version: "knobdeck-plugin drive".into(), dial_open: false };
                 CallResult::ok(id, serde_json::to_value(st).expect("serializes"))

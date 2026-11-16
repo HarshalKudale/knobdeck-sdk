@@ -31,7 +31,7 @@ pub use codegen::{make_full_id, Stage};
 pub use context::Need;
 pub use ctx::{Ctx, Event, InitialCtx, OpenCtx, QueryCtx};
 pub use error::{Error, Result};
-pub use host::{app_state, send_keys, toast, toast_error};
+pub use host::{app_state, open_dial, send_keys, toast, toast_error};
 pub use log::log;
 pub use plugin::{Action, Kind, Plugin};
 pub use runtime::{host_process_id, inputs_match, Runtime, Visual, FEATURE_STATE_MATCH, PROTOCOL};

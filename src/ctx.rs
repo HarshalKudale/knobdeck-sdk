@@ -249,6 +249,10 @@ impl Ctx {
     pub fn app_state(&self) -> Result<crate::protocol::AppState> {
         crate::host::app_state()
     }
+    /// Open the dial on `profile_id` (or the auto-open pick); see [`crate::open_dial`].
+    pub fn open_dial(&self, profile_id: Option<&str>) -> Result<bool> {
+        crate::host::open_dial(profile_id)
+    }
     /// The installed apps (scanned once per process; [`QueryCtx::installed_apps`] rescans).
     #[cfg(feature = "os-apps")]
     pub fn installed_apps(&self) -> Vec<crate::os::apps::InstalledApp> {

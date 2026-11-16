@@ -49,8 +49,11 @@ pub mod features {
     /// The host takes the [`app_state`](crate::host_calls::APP_STATE) host call.
     pub const APP_STATE: &str = "app_state";
 
+    /// The host takes the [`open_dial`](crate::host_calls::OPEN_DIAL) host call.
+    pub const OPEN_DIAL: &str = "open_dial";
+
     /// Every feature defined by this version of the protocol.
-    pub const ALL: &[&str] = &[STATE_MATCH, EVENTS, NOTIFY, APP_STATE];
+    pub const ALL: &[&str] = &[STATE_MATCH, EVENTS, NOTIFY, APP_STATE, OPEN_DIAL];
 }
 
 /// Host events a plugin can subscribe to (`ready.subscribe`, `subscribe`).
@@ -106,7 +109,13 @@ pub mod host_calls {
     /// `params`: `{}`. Answers [`AppState`](crate::AppState). Needs the `app_state` feature.
     pub const APP_STATE: &str = "app_state";
 
-    pub const ALL: &[&str] = &[SEND_KEYS, NOTIFY, APP_STATE];
+    /// `params`: [`OpenDial`](crate::OpenDial). Open the dial, e.g. when the app a plugin watches
+    /// starts streaming. Answers `true` when it opened, `false` when it was already open. Refused
+    /// for an unknown profile and when called more than once every few seconds. Needs the
+    /// `open_dial` feature.
+    pub const OPEN_DIAL: &str = "open_dial";
+
+    pub const ALL: &[&str] = &[SEND_KEYS, NOTIFY, APP_STATE, OPEN_DIAL];
 }
 
 #[cfg(feature = "schema")]
@@ -400,6 +409,16 @@ pub struct Notify {
     /// `info` (default) or `error`. Unknown values read as `info`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub level: Option<String>,
+}
+
+/// `params` of the `open_dial` host call.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
+pub struct OpenDial {
+    /// The dial profile to show. Absent: the one the user's auto-open rules pick, as the dial
+    /// keybind does.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile_id: Option<String>,
 }
 
 /// The answer to the `app_state` host call.

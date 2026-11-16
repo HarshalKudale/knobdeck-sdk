@@ -7,7 +7,7 @@ export const PROTOCOL = 2;
 export const MIN_PROTOCOL = 2;
 
 /** Optional host behaviour, listed in `hello.features`. */
-export const FEATURES = ["state_match", "events", "notify", "app_state"] as const;
+export const FEATURES = ["state_match", "events", "notify", "app_state", "open_dial"] as const;
 export type Feature = (typeof FEATURES)[number];
 
 /** Host events a plugin can subscribe to. */
@@ -23,7 +23,7 @@ export const REQUESTS = ["query", "wheel"] as const;
 export type RequestMethod = (typeof REQUESTS)[number];
 
 /** Values of `host_call.method`. */
-export const HOST_CALLS = ["send_keys", "notify", "app_state"] as const;
+export const HOST_CALLS = ["send_keys", "notify", "app_state", "open_dial"] as const;
 export type HostCallMethod = (typeof HOST_CALLS)[number];
 
 /** The answer to the `app_state` host call. */
@@ -124,6 +124,15 @@ export interface Notify {
   message: string;
   /** `info` (default) or `error`. Unknown values read as `info`. */
   level?: string;
+}
+
+/** `params` of the `open_dial` host call. */
+export interface OpenDial {
+  /**
+   * The dial profile to show. Absent: the one the user's auto-open rules pick, as the dial
+   * keybind does.
+   */
+  profile_id?: string;
 }
 
 /** The body of a `state` frame: a new state and/or a temporary label or icon, and who gets it. */

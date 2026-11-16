@@ -72,7 +72,7 @@ steps file to exercise actions:
 ```
 
 `send_keys` gets a stub answer and is flagged, since it means the action fell back to keystrokes;
-`notify` and `app_state` get the answers KnobDeck gives; any other host call is refused, as KnobDeck does. It fails when the
+`notify`, `app_state` and `open_dial` get the answers KnobDeck gives; any other host call is refused, as KnobDeck does. It fails when the
 plugin writes anything but protocol messages to stdout.
 
 ## Action types
@@ -263,7 +263,7 @@ Plugin::new(..).query("scenes", |ctx| Ok(json!([{"value": "1", "label": "Main"}]
 
 `on_ready` fires once after the first sync with a cloneable, `Send` [`Runtime`]; move it into your
 own threads to push `set_state` / `notify` / `notify_matching` / `notify_visual` / `set_error`. `subscribe(&[..])`
-+ `on_event` receive host events: `dial_opened`, `dial_closed`, `profiles_changed` (names in `knobdeck_sdk::protocol::events`; window changes come from `os::window::watch`). `ctx.toast(msg)` shows the user a short message and `ctx.app_state()` reads KnobDeck's OS, version and dial state; `rt.has_feature(name)` tells you what the host supports. `on_shutdown` runs when the host stops the plugin (stdin closes
++ `on_event` receive host events: `dial_opened`, `dial_closed`, `profiles_changed` (names in `knobdeck_sdk::protocol::events`; window changes come from `os::window::watch`). `ctx.toast(msg)` shows the user a short message and `ctx.app_state()` reads KnobDeck's OS, version and dial state; `ctx.open_dial(Some("streaming"))` opens the dial; `rt.has_feature(name)` tells you what the host supports. `on_shutdown` runs when the host stops the plugin (stdin closes
 or `shutdown` arrives); the host kills it 2 s later.
 
 ## Data and logs
@@ -331,7 +331,7 @@ Run the sign-in in the setup program; the token is kept in the OS credential sto
 ## Protocol v2
 
 One JSON object per line, about plugins only (no foreground, selection or other OS context).
-`hello` carries `host_pid`, KnobDeck's process id. Host calls: `send_keys`, `notify`, `app_state`. Every frame is defined in
+`hello` carries `host_pid`, KnobDeck's process id. Host calls: `send_keys`, `notify`, `app_state`, `open_dial`. Every frame is defined in
 `knobdeck-protocol` and spelled out in [`knobdeck-protocol/REFERENCE.md`](knobdeck-protocol/REFERENCE.md). Host → plugin on stdin: `hello` (first), `sync`, `invoke`, `request`
 (`query` / `wheel`), `event`, `result` (answer to `host_call`), `shutdown`. Plugin → host on stdout:
 `ready` (first), `ack`, `done`, `state`, `error`, `result` (answer to `request`), `host_call`,

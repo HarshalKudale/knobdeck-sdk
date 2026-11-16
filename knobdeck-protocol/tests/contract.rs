@@ -67,7 +67,7 @@ fn unknown_types_and_fields_are_ignored() {
 
 #[test]
 fn fixture_payloads_fit_their_types() {
-    use knobdeck_protocol::{events, host_calls, AppState, DialOpened, Notify};
+    use knobdeck_protocol::{events, host_calls, AppState, DialOpened, Notify, OpenDial};
     let mut seen = 0;
     for f in fixtures::frames(fixtures::V2, "to_plugin") {
         if f["type"] == "event" && f["event"] == events::DIAL_OPENED {
@@ -84,8 +84,12 @@ fn fixture_payloads_fit_their_types() {
             serde_json::from_value::<Notify>(f["params"].clone()).unwrap();
             seen += 1;
         }
+        if f["type"] == "host_call" && f["method"] == host_calls::OPEN_DIAL {
+            serde_json::from_value::<OpenDial>(f["params"].clone()).unwrap();
+            seen += 1;
+        }
     }
-    assert_eq!(seen, 3, "every payload type has a fixture");
+    assert_eq!(seen, 4, "every payload type has a fixture");
 }
 
 #[test]

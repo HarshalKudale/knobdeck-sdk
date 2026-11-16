@@ -295,6 +295,33 @@ fn app_state_reads_the_host_answer_and_fails_clearly_on_an_old_host() {
 }
 
 #[test]
+fn open_dial_is_a_host_call_on_a_new_host_and_an_error_on_an_old_one() {
+    let open = knobdeck_sdk::make_full_id("example-rust", "open-dial");
+    let press = json!({"type": "invoke", "id": "r1", "instance_id": "o1", "action_id": open, "trigger": "press", "inputs": {}});
+
+    let dir = tempfile_dir("open-dial-new");
+    let mut h = Host::start_with(&dir, json!(["open_dial"]));
+    h.expect("ready");
+    h.send(press.clone());
+    let call = h.expect("host_call");
+    assert_eq!((call["method"].as_str(), &call["params"]), (Some("open_dial"), &json!({"profile_id": "default"})));
+    h.send(json!({"type": "result", "id": call["id"], "ok": true, "value": false}));
+    assert_eq!(h.expect_where("state", |m| m["instance_id"] == "o1" && m.get("label").is_some())["label"], "already open");
+    drop(h.stdin);
+    wait_exit(&mut h.child);
+    std::fs::remove_dir_all(&dir).ok();
+
+    let dir = tempfile_dir("open-dial-old");
+    let mut h = Host::start(&dir);
+    h.expect("ready");
+    h.send(press);
+    assert!(h.expect("error")["message"].as_str().unwrap().contains("update KnobDeck"));
+    drop(h.stdin);
+    wait_exit(&mut h.child);
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
 fn subscribed_events_reach_on_event_and_ready_lists_them() {
     let dir = tempfile_dir("events");
     let mut h = Host::start_with(&dir, json!(["events"]));

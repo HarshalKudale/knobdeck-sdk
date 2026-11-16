@@ -3,7 +3,7 @@
 //! (`KNOBDECK_BLESS=1 cargo test -p knobdeck-protocol --features schema` rewrites them).
 
 use crate::{
-    events, features, fixtures, host_calls, requests, triggers, AppState, DialOpened, HostMsg, Notify, PluginMsg, MIN_PROTOCOL,
+    events, features, fixtures, host_calls, requests, triggers, AppState, DialOpened, HostMsg, Notify, OpenDial, PluginMsg, MIN_PROTOCOL,
     PROTOCOL,
 };
 use serde_json::Value;
@@ -26,6 +26,7 @@ pub fn payload_defs() -> BTreeMap<String, Value> {
     g.subschema_for::<DialOpened>();
     g.subschema_for::<Notify>();
     g.subschema_for::<AppState>();
+    g.subschema_for::<OpenDial>();
     g.take_definitions(true).into_iter().collect()
 }
 
