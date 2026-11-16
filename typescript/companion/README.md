@@ -6,16 +6,14 @@ dependencies; works wherever there is a `WebSocket`.
 
 ```ts
 import { Companion, Unsupported } from "@knobdeck/companion";
-import { readDiscovery } from "@knobdeck/companion/node"; // Node only
+import { fromDiscovery } from "@knobdeck/companion/node"; // Node only
 
-const hub = readDiscovery(); // port + token; browser extensions skip this
 const companion = new Companion({
   plugin: "photoshop",            // the KnobDeck plugin's id
   instance: storedRandomId,       // stable per install / window
   app: "photoshop",
   appVersion: host.version,
-  token: hub?.token,
-  ports: hub ? [hub.port] : undefined,
+  ...fromDiscovery(),             // port + token, re-read on every reconnect (Node only)
   onStatus: (s) => console.log("knobdeck", s),
 })
   .action("set-tool", ({ tool }: any) => app.setTool(tool))   // its return value is the result

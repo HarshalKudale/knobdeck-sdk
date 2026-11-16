@@ -62,11 +62,12 @@ export interface CompanionOptions {
   /** This companion's version. */
   version?: string;
   features?: string[];
-  /** The hub token from the discovery file (`@knobdeck/companion/node` reads it). Browser
-   * extensions connect without one. */
-  token?: string;
-  /** Ports to try, in order (default: the discovery file's port, else all hub ports). */
-  ports?: readonly number[];
+  /** The hub token from the discovery file. Browser extensions connect without one. KnobDeck
+   * writes a new token each time it starts, so pass a function (`fromDiscovery()` in
+   * `@knobdeck/companion/node` does) to read it again on every connection attempt. */
+  token?: string | (() => string | undefined);
+  /** Ports to try, in order (default: all hub ports). A function is read on every attempt. */
+  ports?: readonly number[] | (() => readonly number[] | undefined);
   host?: string;
   /** Defaults to the global `WebSocket`. */
   socket?: SocketFactory;
@@ -130,7 +131,12 @@ export class Companion {
   }
 
   #ports(): readonly number[] {
-    return this.#opts.ports?.length ? this.#opts.ports : COMPANION_PORTS;
+    const p = typeof this.#opts.ports === "function" ? this.#opts.ports() : this.#opts.ports;
+    return p?.length ? p : COMPANION_PORTS;
+  }
+
+  #token(): string | undefined {
+    return typeof this.#opts.token === "function" ? this.#opts.token() : this.#opts.token;
   }
 
   #connect(): void {
@@ -150,6 +156,7 @@ export class Companion {
     this.#ws = ws;
     let refused = false;
     ws.onopen = () => {
+      const token = this.#token();
       const hello: CompanionMsg = {
         type: "hello",
         protocol: COMPANION_PROTOCOL,
@@ -160,7 +167,7 @@ export class Companion {
         ...(this.#opts.name ? { name: this.#opts.name } : {}),
         ...(this.#opts.version ? { version: this.#opts.version } : {}),
         features: this.#opts.features ?? [],
-        ...(this.#opts.token ? { token: this.#opts.token } : {}),
+        ...(token ? { token } : {}),
       };
       ws.send(JSON.stringify(hello));
     };
