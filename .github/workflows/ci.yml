@@ -18,6 +18,10 @@ jobs:
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
+      # The parity tests run the TypeScript SDK's plugin next to the Rust one (Node 22.6+ strips types).
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
       - name: cargo test (workspace, all features)
         run: cargo test --workspace --all-features
       # The contract crate stays warning-free; the rest of the workspace has older warnings.
@@ -44,6 +48,21 @@ jobs:
     defaults:
       run:
         working-directory: typescript/companion
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm run check
+      - run: npm test
+
+  sdk-ts:
+    # The TypeScript plugin SDK: type-check and unit tests (parity with Rust runs in the test job).
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: typescript/sdk
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
