@@ -1,0 +1,270 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "HostMsg",
+  "description": "A frame the host writes to the plugin's stdin.",
+  "oneOf": [
+    {
+      "description": "Always the first line.",
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "hello"
+        }
+      },
+      "$ref": "#/$defs/Hello",
+      "required": [
+        "type"
+      ]
+    },
+    {
+      "description": "The plugin's placed instances, sent after `ready` and whenever they change.",
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "sync"
+        },
+        "instances": {
+          "description": "Every placed instance of this plugin's actions; replaces the previous list.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Instance"
+          }
+        }
+      },
+      "required": [
+        "type",
+        "instances"
+      ]
+    },
+    {
+      "description": "Run one instance. The plugin answers `ack` at once and `done` when the handler returns.",
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "invoke"
+        }
+      },
+      "$ref": "#/$defs/Invoke",
+      "required": [
+        "type"
+      ]
+    },
+    {
+      "description": "Ask the plugin for data; answered by a `result` with the same `id`.",
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "request"
+        },
+        "id": {
+          "description": "Echoed by the answering `result`.",
+          "type": "string"
+        },
+        "method": {
+          "description": "A [`requests`] value.",
+          "type": "string"
+        },
+        "params": {
+          "description": "Method-specific arguments.",
+          "default": null
+        }
+      },
+      "required": [
+        "type",
+        "id",
+        "method"
+      ]
+    },
+    {
+      "description": "A host event the plugin subscribed to.",
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "event"
+        },
+        "event": {
+          "description": "An [`events`] value.",
+          "type": "string"
+        },
+        "payload": {
+          "description": "Event-specific data.",
+          "default": null
+        }
+      },
+      "required": [
+        "type",
+        "event"
+      ]
+    },
+    {
+      "description": "The answer to a plugin's `host_call`.",
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "result"
+        }
+      },
+      "$ref": "#/$defs/CallResult",
+      "required": [
+        "type"
+      ]
+    },
+    {
+      "description": "Stop now. The host kills the process if it is still alive two seconds later.",
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "shutdown"
+        }
+      },
+      "required": [
+        "type"
+      ]
+    }
+  ],
+  "$defs": {
+    "Hello": {
+      "description": "The body of `hello`: who the plugin is and what the host can do.",
+      "type": "object",
+      "properties": {
+        "protocol": {
+          "description": "The newest protocol number the host speaks.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "plugin_id": {
+          "description": "The plugin's id. Action ids are made from it (`make_full_id` in the SDK).",
+          "type": "string"
+        },
+        "data_dir": {
+          "description": "A folder the plugin owns for its settings and caches.",
+          "type": "string"
+        },
+        "host_version": {
+          "description": "KnobDeck's version, for logs and bug reports. Check `features`, not this, before using\noptional behaviour.",
+          "type": "string"
+        },
+        "features": {
+          "description": "The [`features`] this host has.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "host_pid": {
+          "description": "The host's process id, so a plugin can leave KnobDeck's own windows out of \"the target\nwindow\".",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "protocol",
+        "plugin_id",
+        "data_dir",
+        "host_version"
+      ]
+    },
+    "Instance": {
+      "description": "One placed instance of an action.",
+      "type": "object",
+      "properties": {
+        "instance_id": {
+          "description": "Stable for as long as the action stays where the user put it.",
+          "type": "string"
+        },
+        "action_id": {
+          "description": "The full action id (`<plugin>-<action>-<hash>`).",
+          "type": "string"
+        },
+        "inputs": {
+          "description": "The values the user set in the action's setup form.",
+          "default": null
+        }
+      },
+      "required": [
+        "instance_id",
+        "action_id"
+      ]
+    },
+    "Invoke": {
+      "description": "The body of `invoke`: run one placed instance.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "Echoed by `ack` and `done`.",
+          "type": "string"
+        },
+        "instance_id": {
+          "description": "For a dynamic-wheel child: `\"<wheel instance>::<child_id>\"`.",
+          "type": "string"
+        },
+        "action_id": {
+          "description": "The full action id.",
+          "type": "string"
+        },
+        "trigger": {
+          "description": "A [`triggers`] value.",
+          "type": "string"
+        },
+        "inputs": {
+          "description": "The instance's inputs; for `adjust`, plus `value` (absolute) and/or `delta`.",
+          "default": null
+        },
+        "child_id": {
+          "description": "Set when a dynamic wheel's child button was pressed.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "instance_id",
+        "action_id",
+        "trigger"
+      ]
+    },
+    "CallResult": {
+      "description": "`result`: the answer to a `request` (plugin → host) or a `host_call` (host → plugin).",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "The `id` of the `request` or `host_call` this answers.",
+          "type": "string"
+        },
+        "ok": {
+          "description": "Whether it worked: then `value` is set, else `error`.",
+          "type": "boolean"
+        },
+        "value": {
+          "description": "Present when `ok`. May be `null`, which is kept apart from \"absent\"."
+        },
+        "error": {
+          "description": "Present when not `ok`. Human-readable; not part of the contract.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "ok"
+      ]
+    }
+  }
+}

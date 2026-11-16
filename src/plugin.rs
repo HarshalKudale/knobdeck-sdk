@@ -402,11 +402,17 @@ impl Plugin {
         self
     }
 
-    /// Subscribe to host events by name (none are defined at the moment; the window watcher of
+    /// Subscribe to host events by name (`knobdeck_sdk::protocol::events`; the window watcher of
     /// [`Action::volatile`] replaced `focus_changed`).
     pub fn subscribe(mut self, events: &[&str]) -> Self {
         self.subscriptions.extend(events.iter().map(|s| s.to_string()));
         self
+    }
+
+    /// Accept companions whose `hello.plugin` is this plugin's id: subscribes to the companion
+    /// events, which [`crate::companion::parse`] reads in `on_event`. See [`crate::companion`].
+    pub fn companions(self) -> Self {
+        self.subscribe(crate::companion::EVENTS)
     }
 
     pub fn on_event(mut self, f: impl Fn(&Event, &Runtime) -> Result + Send + Sync + 'static) -> Self {

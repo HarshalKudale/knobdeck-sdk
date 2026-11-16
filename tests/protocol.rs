@@ -7,17 +7,36 @@ use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::mpsc::{channel, Receiver};
 use std::time::Duration;
 
+/// The demo example these tests launch, built once per test run (`cargo test` does not rebuild
+/// it, so a change to the SDK could otherwise pass against a stale binary). Cargo reports where it
+/// wrote the executable, so the tests don't guess the target layout.
 fn demo_exe() -> std::path::PathBuf {
-    let mut p = std::env::current_exe().unwrap();
-    p.pop(); // deps/
-    p.pop();
-    p.join("examples").join(format!("demo{}", std::env::consts::EXE_SUFFIX))
+    static EXE: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+    EXE.get_or_init(|| {
+        let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".into());
+        let out = Command::new(cargo)
+            .args(["build", "--example", "demo", "--message-format=json-render-diagnostics"])
+            .current_dir(env!("CARGO_MANIFEST_DIR"))
+            .stderr(Stdio::inherit())
+            .output()
+            .expect("run cargo build --example demo");
+        assert!(out.status.success(), "could not build the demo example");
+        String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .filter_map(|l| serde_json::from_str::<Value>(l).ok())
+            .filter(|m| m["reason"] == "compiler-artifact" && m["target"]["name"] == "demo")
+            .find_map(|m| m["executable"].as_str().map(std::path::PathBuf::from))
+            .expect("cargo reported no demo executable")
+    })
+    .clone()
 }
 
 struct Host {
     child: Child,
     stdin: ChildStdin,
     lines: Receiver<String>,
+    /// Every frame read so far, for the fixture shape check.
+    seen: std::cell::RefCell<Vec<Value>>,
 }
 
 impl Host {
@@ -44,7 +63,7 @@ impl Host {
                 }
             }
         });
-        let mut host = Host { child, stdin, lines };
+        let mut host = Host { child, stdin, lines, seen: Default::default() };
         host.send(json!({"type": "hello", "protocol": 2, "plugin_id": "example-rust", "data_dir": data_dir, "host_version": "test", "features": features}));
         host
     }
@@ -57,7 +76,9 @@ impl Host {
     /// Every stdout line must be a protocol message; return the next one.
     fn next(&self) -> Value {
         let line = self.lines.recv_timeout(Duration::from_secs(10)).expect("plugin went quiet");
-        serde_json::from_str(&line).unwrap_or_else(|e| panic!("non-protocol stdout line {line:?}: {e}"))
+        let v: Value = serde_json::from_str(&line).unwrap_or_else(|e| panic!("non-protocol stdout line {line:?}: {e}"));
+        self.seen.borrow_mut().push(v.clone());
+        v
     }
 
     /// Read until a message of type `ty` (skipping unrelated pushes like the ticker).
@@ -215,6 +236,154 @@ fn setup_required_carries_reason() {
 }
 
 #[test]
+fn toast_is_a_notify_host_call_on_a_new_host_and_a_log_line_on_an_old_one() {
+    let toast = knobdeck_sdk::make_full_id("example-rust", "toast");
+    let press = |id: &str| json!({"type": "invoke", "id": id, "instance_id": "t1", "action_id": toast, "trigger": "press", "inputs": {}});
+
+    let dir = tempfile_dir("toast-new");
+    let mut h = Host::start_with(&dir, json!(["state_match", "notify"]));
+    h.expect("ready");
+    h.send(press("r1"));
+    let call = h.expect("host_call");
+    assert_eq!(call["method"], "notify");
+    assert_eq!(call["params"], json!({"message": "Hello from the demo"}));
+    h.send(json!({"type": "result", "id": call["id"], "ok": true, "value": null}));
+    h.expect_where("done", |m| m["id"] == "r1");
+    drop(h.stdin);
+    wait_exit(&mut h.child);
+    std::fs::remove_dir_all(&dir).ok();
+
+    let dir = tempfile_dir("toast-old");
+    let mut h = Host::start_with(&dir, json!(["state_match"]));
+    h.expect("ready");
+    h.send(press("r1"));
+    h.expect_where("done", |m| m["id"] == "r1");
+    assert!(!h.seen.borrow().iter().any(|f| f["type"] == "host_call"), "an old host gets no notify call");
+    assert!(!h.seen.borrow().iter().any(|f| f["type"] == "error"), "and the action still succeeds");
+    drop(h.stdin);
+    wait_exit(&mut h.child);
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn app_state_reads_the_host_answer_and_fails_clearly_on_an_old_host() {
+    let here = knobdeck_sdk::make_full_id("example-rust", "where");
+    let press = json!({"type": "invoke", "id": "r1", "instance_id": "w1", "action_id": here, "trigger": "press", "inputs": {}});
+
+    let dir = tempfile_dir("app-state-new");
+    let mut h = Host::start_with(&dir, json!(["app_state"]));
+    h.expect("ready");
+    h.send(press.clone());
+    let call = h.expect("host_call");
+    assert_eq!(call["method"], "app_state");
+    h.send(json!({"type": "result", "id": call["id"], "ok": true, "value": {"os": "linux", "host_version": "9.9", "dial_open": false}}));
+    let st = h.expect_where("state", |m| m["instance_id"] == "w1" && m.get("label").is_some());
+    assert_eq!(st["label"], "linux 9.9");
+    drop(h.stdin);
+    wait_exit(&mut h.child);
+    std::fs::remove_dir_all(&dir).ok();
+
+    let dir = tempfile_dir("app-state-old");
+    let mut h = Host::start(&dir);
+    h.expect("ready");
+    h.send(press);
+    let err = h.expect("error");
+    assert!(err["message"].as_str().unwrap().contains("update KnobDeck"), "{err}");
+    drop(h.stdin);
+    wait_exit(&mut h.child);
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn open_dial_is_a_host_call_on_a_new_host_and_an_error_on_an_old_one() {
+    let open = knobdeck_sdk::make_full_id("example-rust", "open-dial");
+    let press = json!({"type": "invoke", "id": "r1", "instance_id": "o1", "action_id": open, "trigger": "press", "inputs": {}});
+
+    let dir = tempfile_dir("open-dial-new");
+    let mut h = Host::start_with(&dir, json!(["open_dial"]));
+    h.expect("ready");
+    h.send(press.clone());
+    let call = h.expect("host_call");
+    assert_eq!((call["method"].as_str(), &call["params"]), (Some("open_dial"), &json!({"profile_id": "default"})));
+    h.send(json!({"type": "result", "id": call["id"], "ok": true, "value": false}));
+    assert_eq!(h.expect_where("state", |m| m["instance_id"] == "o1" && m.get("label").is_some())["label"], "already open");
+    drop(h.stdin);
+    wait_exit(&mut h.child);
+    std::fs::remove_dir_all(&dir).ok();
+
+    let dir = tempfile_dir("open-dial-old");
+    let mut h = Host::start(&dir);
+    h.expect("ready");
+    h.send(press);
+    assert!(h.expect("error")["message"].as_str().unwrap().contains("update KnobDeck"));
+    drop(h.stdin);
+    wait_exit(&mut h.child);
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn companion_requests_go_through_the_host_and_their_answers_come_back() {
+    let action = knobdeck_sdk::make_full_id("example-rust", "companion");
+    let press = |id: &str| json!({"type": "invoke", "id": id, "instance_id": "c1", "action_id": action, "trigger": "press", "inputs": {}});
+    let dir = tempfile_dir("companion");
+    let mut h = Host::start_with(&dir, json!(["companion_hub"]));
+    h.expect("ready");
+    h.send(json!({"type": "event", "event": "companion_connected", "payload": {"link": "x-1", "instance": "i", "app": "demo-app", "features": []}}));
+
+    // The companion answers.
+    h.send(press("r1"));
+    let call = h.expect("host_call");
+    assert_eq!(call["method"], "companion_request");
+    assert_eq!(call["params"], json!({"action": "say", "params": {"text": "hi"}}));
+    h.send(json!({"type": "result", "id": call["id"], "ok": true, "value": {"id": "1", "ok": true, "result": "hello"}}));
+    assert_eq!(h.expect_where("state", |m| m["instance_id"] == "c1" && m.get("label").is_some())["label"], "\"hello\"");
+
+    // The app can't do it: the companion's `unsupported` becomes the button's error.
+    h.send(press("r2"));
+    let call = h.expect("host_call");
+    h.send(json!({"type": "result", "id": call["id"], "ok": true, "value": {"id": "2", "ok": false, "unsupported": true}}));
+    assert_eq!(h.expect("error")["message"], "the app can't do this");
+
+    // No companion: the host call fails, and so does the action.
+    h.send(press("r3"));
+    let call = h.expect("host_call");
+    h.send(json!({"type": "result", "id": call["id"], "ok": false, "error": "no companion is connected"}));
+    assert_eq!(h.expect("error")["message"], "no companion is connected");
+    drop(h.stdin);
+    wait_exit(&mut h.child);
+    std::fs::remove_dir_all(&dir).ok();
+
+    // An older host: a clear error, and no host call.
+    let dir = tempfile_dir("companion-old");
+    let mut h = Host::start(&dir);
+    h.expect("ready");
+    h.send(press("r1"));
+    assert!(h.expect("error")["message"].as_str().unwrap().contains("update KnobDeck"));
+    drop(h.stdin);
+    wait_exit(&mut h.child);
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn subscribed_events_reach_on_event_and_ready_lists_them() {
+    let dir = tempfile_dir("events");
+    let mut h = Host::start_with(&dir, json!(["events"]));
+    let ready = h.expect("ready");
+    assert_eq!(
+        ready["subscribe"],
+        json!(["dial_opened", "dial_closed", "companion_connected", "companion_disconnected", "companion_event"])
+    );
+    h.send(json!({"type": "event", "event": "dial_opened", "payload": {"profile_id": "default"}}));
+    h.send(json!({"type": "event", "event": "some_future_event", "payload": 1}));
+    // Still answering afterwards.
+    h.send(json!({"type": "request", "id": "q", "method": "query", "params": {"query_id": "items", "inputs": {"group": "fruit"}}}));
+    assert_eq!(h.expect_where("result", |m| m["id"] == "q")["ok"], true);
+    drop(h.stdin);
+    wait_exit(&mut h.child);
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
 fn codegen_emits_manifest_and_actions() {
     let out = Command::new(demo_exe()).env("KNOBDECK_CODEGEN", "1").env("KNOBDECK_STAGE", "build").output().unwrap();
     assert!(out.status.success());
@@ -225,6 +394,137 @@ fn codegen_emits_manifest_and_actions() {
     let actions = v["actions"]["actions"].as_array().unwrap();
     assert_eq!(actions[0]["id"], knobdeck_sdk::make_full_id("example-rust", "ping"));
     assert_eq!(actions.iter().find(|a| a["type"] == "slider").unwrap()["max"], 100.0);
+}
+
+// ── Golden fixtures (knobdeck-protocol/fixtures/protocol-v2.jsonl) ───────────
+//
+// The fixture file holds one or more example frames per message type, in both directions. It is the
+// written-down contract: COMPAT.md says what may change. Every frame this SDK emits must fit it
+// (known type, known keys, matching JSON types), and the plugin must survive every host frame in it.
+// Adding a field is allowed, but it has to be added to the fixture too, so the change is visible in
+// review. The host tests against the same file through the `knobdeck-protocol` crate.
+
+use knobdeck_sdk::protocol::fixtures;
+
+/// Keys whose value is free-form by design; only their presence is checked.
+const FREE_FORM: &[&str] = &["value", "params", "inputs", "payload", "match", "instances"];
+
+fn fixture_frames(dir: &str) -> Vec<Value> {
+    fixtures::frames(fixtures::V2, dir)
+}
+
+fn json_type(v: &Value) -> &'static str {
+    match v {
+        Value::Null => "null",
+        Value::Bool(_) => "bool",
+        Value::Number(_) => "number",
+        Value::String(_) => "string",
+        Value::Array(_) => "array",
+        Value::Object(_) => "object",
+    }
+}
+
+/// Why `frame` does not fit the fixtures for `dir`, or `None`.
+fn misfit(dir: &str, frame: &Value) -> Option<String> {
+    let ty = frame["type"].as_str()?;
+    let examples: Vec<Value> = fixture_frames(dir).into_iter().filter(|f| f["type"] == ty).collect();
+    if examples.is_empty() {
+        return Some(format!("message type {ty:?} is not in knobdeck-protocol/fixtures/protocol-v2.jsonl"));
+    }
+    for (key, val) in frame.as_object().unwrap() {
+        let known: Vec<&Value> = examples.iter().filter_map(|e| e.get(key)).collect();
+        if known.is_empty() {
+            return Some(format!("{ty}: field {key:?} is not in the fixtures (renamed or added? update them and COMPAT.md)"));
+        }
+        if !FREE_FORM.contains(&key.as_str()) && !known.iter().any(|k| json_type(k) == json_type(val)) {
+            return Some(format!("{ty}.{key}: type changed to {} (fixtures have {})", json_type(val), json_type(known[0])));
+        }
+    }
+    None
+}
+
+#[test]
+fn fixtures_are_well_formed() {
+    for (dir, expect_hello) in [("to_plugin", "hello"), ("to_host", "ready")] {
+        let frames = fixture_frames(dir);
+        assert_eq!(frames[0]["type"], expect_hello, "{dir} starts with {expect_hello}");
+        assert!(frames.iter().all(|f| f["type"].is_string()), "{dir}: every frame has a type");
+    }
+    assert_eq!(fixture_frames("to_plugin")[0]["protocol"], 2);
+}
+
+#[test]
+fn every_emitted_frame_fits_the_fixtures() {
+    let dir = tempfile_dir("fixtures");
+    let mut h = Host::start_with(&dir, json!(["state_match"]));
+    h.expect("ready");
+
+    let mute = knobdeck_sdk::make_full_id("example-rust", "mute");
+    let volume = knobdeck_sdk::make_full_id("example-rust", "volume");
+    let pick = knobdeck_sdk::make_full_id("example-rust", "pick");
+    let expire = knobdeck_sdk::make_full_id("example-rust", "expire");
+    let dv = knobdeck_sdk::make_full_id("example-rust", "device-volume");
+
+    h.send(json!({"type": "sync", "instances": [
+        {"instance_id": "i1", "action_id": mute, "inputs": {}},
+        {"instance_id": "v1", "action_id": volume, "inputs": {}},
+        {"instance_id": "a1", "action_id": dv, "inputs": {"device": "a", "step": "5"}},
+    ]}));
+    h.expect_where("state", |m| m["instance_id"] == "i1");
+    h.send(json!({"type": "invoke", "id": "r1", "instance_id": "i1", "action_id": mute, "trigger": "press", "inputs": {}}));
+    h.expect("done");
+    h.send(json!({"type": "invoke", "id": "r2", "instance_id": "v1", "action_id": volume, "trigger": "adjust", "inputs": {"value": 40}}));
+    h.expect("done");
+    h.send(json!({"type": "invoke", "id": "r3", "instance_id": "a1", "action_id": dv, "trigger": "adjust", "inputs": {"device": "a", "step": "5", "value": 40}}));
+    h.expect("done");
+    h.send(json!({"type": "request", "id": "q1", "method": "query", "params": {"query_id": "items", "inputs": {"group": "fruit"}}}));
+    h.expect("result");
+    h.send(json!({"type": "request", "id": "q2", "method": "query", "params": {"query_id": "nope"}}));
+    h.expect("result");
+    h.send(json!({"type": "invoke", "id": "r4", "instance_id": "p1", "action_id": pick, "trigger": "press", "inputs": {}}));
+    h.expect("error");
+    h.send(json!({"type": "invoke", "id": "r5", "instance_id": "e1", "action_id": expire, "trigger": "press", "inputs": {}}));
+    h.expect("setup_required");
+    drop(h.stdin);
+    wait_exit(&mut h.child);
+
+    let seen = h.seen.borrow();
+    let problems: Vec<String> = seen.iter().filter_map(|f| misfit("to_host", f)).collect();
+    assert!(problems.is_empty(), "frames the plugin sent do not fit the fixtures:\n{}", problems.join("\n"));
+    for ty in ["ready", "ack", "done", "state", "error", "result", "setup_required"] {
+        assert!(seen.iter().any(|f| f["type"] == ty), "the session never produced a {ty:?} frame, so it was not checked");
+    }
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn plugin_survives_every_host_frame_in_the_fixtures() {
+    let dir = tempfile_dir("host-frames");
+    let mut h = Host::start_with(&dir, json!(["state_match"]));
+    h.expect("ready");
+    // Everything a host may send, including ids the plugin has never heard of.
+    for f in fixture_frames("to_plugin") {
+        if f["type"] != "hello" && f["type"] != "shutdown" {
+            h.send(f);
+        }
+    }
+    // Still alive and answering in order.
+    h.send(json!({"type": "request", "id": "alive", "method": "query", "params": {"query_id": "items", "inputs": {"group": "fruit"}}}));
+    let res = h.expect_where("result", |m| m["id"] == "alive");
+    assert_eq!(res["ok"], true);
+    h.send(json!({"type": "shutdown"}));
+    assert!(wait_exit(&mut h.child).success());
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn a_new_field_is_caught_until_the_fixture_declares_it() {
+    // The guard itself: an undeclared field, a changed type and an unknown type are all reported.
+    assert!(misfit("to_host", &json!({"type": "ack", "id": "r1"})).is_none());
+    assert!(misfit("to_host", &json!({"type": "ack", "id": "r1", "extra": 1})).is_some());
+    assert!(misfit("to_host", &json!({"type": "ack", "id": 7})).is_some());
+    assert!(misfit("to_host", &json!({"type": "ack", "identifier": "r1"})).is_some());
+    assert!(misfit("to_host", &json!({"type": "brand_new"})).is_some());
 }
 
 fn tempfile_dir(tag: &str) -> std::path::PathBuf {

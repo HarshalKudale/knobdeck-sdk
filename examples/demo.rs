@@ -2,7 +2,8 @@
 //! inputs and a background ticker. Run `knobdeck-plugin dev` from a crate using it.
 
 use knobdeck_sdk::input::{self, InputExt};
-use knobdeck_sdk::{json, Action, Plugin, Visual};
+use knobdeck_sdk::protocol::events;
+use knobdeck_sdk::{companion, json, Action, Plugin, Visual};
 use std::time::Duration;
 
 fn main() {
@@ -62,6 +63,35 @@ fn main() {
             Action::button("expire", "Expire token (setup demo)")
                 .on_press(|ctx| Ok(ctx.mark_setup_required("demo token expired"))),
         )
+        .action(Action::button("toast", "Toast (notify demo)").on_press(|ctx| ctx.toast("Hello from the demo")))
+        .action(Action::button("where", "Host info (app_state demo)").on_press(|ctx| {
+            // Needs a KnobDeck with `app_state`; an older one returns an error, shown on the button.
+            let st = ctx.app_state()?;
+            ctx.set_visual(Visual::new().label(format!("{} {}", st.os, st.host_version)));
+            Ok(())
+        }))
+        .action(Action::button("open-dial", "Open dial (open_dial demo)").on_press(|ctx| {
+            let opened = ctx.open_dial(Some("default"))?;
+            ctx.set_label(if opened { "opened" } else { "already open" });
+            Ok(())
+        }))
+        .action(Action::button("companion", "Companion (hub demo)").on_press(|ctx| {
+            // The companion's answer: its result, or its error on the button.
+            let answer = companion::request(None, "say", json!({"text": "hi"}))?;
+            let v = companion::check(answer)?;
+            ctx.set_label(v.to_string());
+            Ok(())
+        }))
+        // Host events (a KnobDeck with the `events` feature sends these), and companions.
+        .subscribe(&[events::DIAL_OPENED, events::DIAL_CLOSED])
+        .companions()
+        .on_event(|ev, rt| {
+            match companion::parse(ev) {
+                Some(companion::Update::Connected(link)) => rt.log(format!("companion {} connected", link.app)),
+                _ => rt.log(format!("event {} {}", ev.name, ev.payload)),
+            }
+            Ok(())
+        })
         .query("groups", |_| Ok(json!([{"value": "fruit", "label": "Fruit"}, {"value": "veg", "label": "Veg"}])))
         .query("items", |ctx| {
             Ok(match ctx.input_str("group").as_str() {

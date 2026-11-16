@@ -16,6 +16,8 @@
 
 #[path = "knobdeck-plugin/drive.rs"]
 mod drive;
+#[path = "knobdeck-plugin/conform.rs"]
+mod conform;
 #[path = "knobdeck-plugin/scaffold.rs"]
 mod scaffold;
 
@@ -24,13 +26,14 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-const USAGE: &str = "knobdeck-plugin <new|dev|drive|build|package|skill>
+const USAGE: &str = "knobdeck-plugin <new|dev|drive|conform|build|package|skill>
 
   new <folder> [--name N] [--id ID] [--os windows|macos|linux]
                [--author A] [--description D]
                                 create a plugin crate, with the AI agent skill
   dev [--skip-setup] [--watch]  build (debug) + assemble dist/<id>/ for \"Load Unpacked\"
   drive [steps.json]            run dist/<id>/ over the real protocol, without KnobDeck
+  conform [--dir D] [-- CMD..]  check that a plugin (any language) follows the protocol
   build                         build (release) + assemble dist/<id>/
   package                       zip dist/<id>/ -> dist/<id>.knobdeck
   skill [folder]                write the agent skill (default .claude/skills/knobdeck-plugin)
@@ -348,6 +351,7 @@ fn main() {
         Some("build") => assemble(true, false),
         Some("package") => package(),
         Some("drive") => drive::drive(args.get(1).map(String::as_str)).unwrap_or_else(|e| die(e)),
+        Some("conform") => conform::conform(&args[1..]).unwrap_or_else(|e| die(e)),
         Some("skill") => {
             let dir = args.get(1).map(PathBuf::from).unwrap_or_else(|| PathBuf::from(".claude/skills/knobdeck-plugin"));
             scaffold::install_skill(&dir).unwrap_or_else(|e| die(e));

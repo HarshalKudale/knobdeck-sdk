@@ -193,9 +193,9 @@ each action → wait → shutdown. With a steps file it runs your steps after th
 ]
 ```
 
-`knobdeck-plugin drive steps.json`. Every message the plugin sends is printed (`state`, `error`,
-`result`, `host_call`); `send_keys`, the only host call, is answered with a harmless stub and
-printed, so you can see when a plugin falls back to keystrokes. A non-JSON line
+`knobdeck-plugin drive steps.json`. Then `knobdeck-plugin conform` (protocol checks; must pass before release). Every message the plugin sends is printed (`state`, `error`,
+`result`, `host_call`); host calls get the answers KnobDeck gives, and `send_keys` is answered with a
+harmless stub and printed, so you can see when a plugin falls back to keystrokes. A non-JSON line
 on stdout fails the run. Check that each action produced the state or label you expect, and that
 errors are clear sentences a user can act on ("Acme isn't running", not "connection refused (os
 error 61)").

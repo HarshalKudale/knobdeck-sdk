@@ -1,0 +1,64 @@
+name: Publish to npm
+# Publishes @knobdeck/protocol, @knobdeck/sdk and @knobdeck/companion when master has a version
+# that isn't on npm yet. Bump "version" in typescript/<package>/package.json to release; protocol
+# goes first because the others depend on its exact version.
+#
+# No token: npm Trusted Publishing. npm trusts this workflow (repository Knobdeck/knobdeck-sdk,
+# file publish-npm.yml, environment npm) through GitHub's OIDC, set up once per package on
+# npmjs.com (typescript/RELEASING.md). Provenance is attached automatically.
+on:
+  push:
+    branches: [master]
+    paths:
+      - "typescript/**"
+      - "knobdeck-protocol/**"
+      - ".github/workflows/publish-npm.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # OIDC for npm Trusted Publishing (and provenance)
+
+concurrency:
+  group: npm-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    # Named in each package's Trusted Publisher settings; add required reviewers to it on GitHub to
+    # approve every release by hand.
+    environment: npm
+    defaults:
+      run:
+        working-directory: typescript
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: The generated TypeScript matches the Rust definitions
+        working-directory: .
+        run: cargo test -p knobdeck-protocol --features schema --test contract
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      # Trusted publishing needs npm 11.5.1+; Node 22 ships npm 10.
+      - run: npm install -g npm@11.21.1
+      - run: npm ci
+      - run: npm run versions
+      - run: npm run build
+      - run: npm run check
+      - run: npm test
+      - name: Publish versions that aren't on npm yet
+        run: |
+          for pkg in protocol sdk companion; do
+            name=$(node -p "require('./$pkg/package.json').name")
+            version=$(node -p "require('./$pkg/package.json').version")
+            if npm view "$name@$version" version >/dev/null 2>&1; then
+              echo "$name@$version is already on npm"
+            else
+              echo "Publishing $name@$version"
+              npm publish --workspace "$pkg" --access public
+            fi
+          done

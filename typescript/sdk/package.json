@@ -1,0 +1,21 @@
+{
+  "name": "@knobdeck/sdk",
+  "version": "0.1.0",
+  "description": "Write KnobDeck plugins in TypeScript",
+  "license": "MIT",
+  "type": "module",
+  "repository": { "type": "git", "url": "git+https://github.com/Knobdeck/knobdeck-sdk.git", "directory": "typescript/sdk" },
+  "homepage": "https://github.com/Knobdeck/knobdeck-sdk/tree/master/typescript/sdk#readme",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" }
+  },
+  "files": ["dist", "README.md", "LICENSE"],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "check": "tsc -p tsconfig.json",
+    "test": "node --experimental-strip-types --no-warnings --test test/*.test.ts"
+  },
+  "engines": { "node": ">=22" },
+  "publishConfig": { "access": "public", "provenance": true },
+  "dependencies": { "@knobdeck/protocol": "0.1.0" }
+}

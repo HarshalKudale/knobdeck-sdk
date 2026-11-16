@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ServerMsg",
+  "description": "A line KnobDeck sends.",
+  "oneOf": [
+    {
+      "description": "`hello` was accepted.",
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "ready"
+        },
+        "protocol": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "host_version": {
+          "type": "string"
+        },
+        "commands": {
+          "description": "The [`commands`] this KnobDeck takes.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "type",
+        "protocol",
+        "host_version",
+        "commands"
+      ]
+    },
+    {
+      "description": "`hello` was refused; the connection closes after this.",
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "refused"
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "reason"
+      ]
+    },
+    {
+      "description": "The answer to a `request`.",
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "response"
+        },
+        "id": {
+          "type": "string"
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "result": true,
+        "error": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "id",
+        "ok"
+      ]
+    },
+    {
+      "description": "A subscribed host event.",
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "event"
+        },
+        "event": {
+          "type": "string"
+        },
+        "payload": {
+          "default": null
+        }
+      },
+      "required": [
+        "type",
+        "event"
+      ]
+    }
+  ]
+}

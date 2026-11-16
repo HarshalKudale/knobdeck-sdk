@@ -14,7 +14,7 @@
 | `.query(id, \|q: &QueryCtx\| Ok(json!([{"value": .., "label": ..}])))` | options for `query_select` inputs; `q.inputs`, `q.installed_apps()` (os-apps, rescans) |
 | `.setup(bin, page)` `.setup_inputs(vec![..])` `.setup_assets_dir(dir)` | a setup program (second `[[bin]]` calling `run_setup`) |
 | `.on_ready(\|rt: &Runtime\| ..)` | once after the first sync; clone `rt` into your threads |
-| `.subscribe(&[..])` `.on_event(\|e: &Event, rt\| ..)` | host events (none defined now) |
+| `.subscribe(&[..])` `.on_event(\|e: &Event, rt\| ..)` | host events: `protocol::events::{DIAL_OPENED, DIAL_CLOSED, PROFILES_CHANGED}` (hosts with the `events` feature) |
 | `.on_shutdown(\|rt\| ..)` | the host kills the process 2 s later |
 | `.ack_timeout_ms(n)` `.query_timeout_ms(n)` | raise host timeouts for slow handlers |
 | `.run()` | start (never returns) |
@@ -54,7 +54,11 @@ Fields: `instance_id`, `action_id`, `trigger` (`press`, `adjust`, `hold_start`, 
 | `fail(msg)` | return this: report the error and stop the handler |
 | `mark_setup_required(reason)` | the host stops the plugin and asks for setup |
 | `log(msg)` `data_dir()` `runtime()` | |
-| `send_keys(keys)` | the only host call; last resort |
+| `send_keys(keys)` | host call; last resort |
+| `toast(msg)` | short message to the user (`notify` feature; plugin log on older hosts) |
+| `app_state()` | `AppState { os, host_version, dial_open }` (`app_state` feature; error on older hosts) |
+| `open_dial(Some("profile"))` | open the dial (`open_dial` feature): `Ok(true)` opened, `Ok(false)` already open; unknown profiles and rapid repeats are refused |
+| `Plugin::companions()` + `companion::{parse, request, check, links}` | app-side companions through KnobDeck's hub (`companion_hub` feature); see the `companion` module docs |
 | `focus_app(app)` | os-window: the app's frontmost window to the front (in this process) |
 | `installed_apps()` | os-apps: cached `Vec<InstalledApp>` (`label`, `value`, `executable`, `working_dir`) |
 | `window()` `focus()` `selection()` `files()` `folder()` `clipboard_text()` `clipboard_files()` `document()` `browser_tab()` `pointer()` | OS context, read once per press (lazy; prefetched by `.needs`) |

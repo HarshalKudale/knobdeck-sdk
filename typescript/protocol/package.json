@@ -1,0 +1,19 @@
+{
+  "name": "@knobdeck/protocol",
+  "version": "0.1.0",
+  "description": "KnobDeck's wire protocol: TypeScript types and constants for every frame, generated from the Rust definitions",
+  "license": "MIT",
+  "type": "module",
+  "repository": { "type": "git", "url": "git+https://github.com/Knobdeck/knobdeck-sdk.git", "directory": "typescript/protocol" },
+  "homepage": "https://github.com/Knobdeck/knobdeck-sdk/tree/master/typescript/protocol#readme",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" }
+  },
+  "files": ["dist", "README.md", "LICENSE"],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "check": "tsc -p tsconfig.json"
+  },
+  "engines": { "node": ">=22" },
+  "publishConfig": { "access": "public", "provenance": true }
+}

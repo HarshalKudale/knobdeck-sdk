@@ -82,7 +82,11 @@ impl Ctx {
     }
     /// Fan-out: report state for ALL instances of this action.
     pub fn fan_out(&self, value: impl ToString) {
-        self.rt.send(serde_json::json!({"type": "state", "action_id": self.full_action_id, "state": value.to_string()}));
+        self.rt.send(knobdeck_protocol::PluginMsg::State(knobdeck_protocol::StateUpdate {
+            target: knobdeck_protocol::Target::action(self.full_action_id.clone()),
+            state: Some(value.to_string()),
+            ..Default::default()
+        }));
     }
     /// Push ephemeral visuals (any subset of state/label/icon) for THIS instance.
     pub fn set_visual(&self, patch: Visual) {
@@ -236,6 +240,18 @@ impl Ctx {
     /// Ask KnobDeck to press a key combination. Last resort: see the keystroke rule in the docs.
     pub fn send_keys(&self, keys: &str) -> Result {
         crate::host::send_keys(keys)
+    }
+    /// Show the user a short message ("Copied"). Goes to the plugin log on an older KnobDeck.
+    pub fn toast(&self, message: impl AsRef<str>) -> Result {
+        crate::host::toast(message.as_ref())
+    }
+    /// KnobDeck's OS, version and dial state (needs a KnobDeck with `app_state`).
+    pub fn app_state(&self) -> Result<crate::protocol::AppState> {
+        crate::host::app_state()
+    }
+    /// Open the dial on `profile_id` (or the auto-open pick); see [`crate::open_dial`].
+    pub fn open_dial(&self, profile_id: Option<&str>) -> Result<bool> {
+        crate::host::open_dial(profile_id)
     }
     /// The installed apps (scanned once per process; [`QueryCtx::installed_apps`] rescans).
     #[cfg(feature = "os-apps")]

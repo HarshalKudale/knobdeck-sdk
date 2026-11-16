@@ -2,3 +2,5 @@
 Cargo.lock
 dist/
 log.txt
+node_modules/
+typescript/*/dist/

@@ -1,0 +1,22 @@
+{
+  "name": "@knobdeck/companion",
+  "version": "0.1.0",
+  "description": "Connect an add-on inside another app to its KnobDeck plugin through KnobDeck's companion hub",
+  "license": "MIT",
+  "type": "module",
+  "repository": { "type": "git", "url": "git+https://github.com/Knobdeck/knobdeck-sdk.git", "directory": "typescript/companion" },
+  "homepage": "https://github.com/Knobdeck/knobdeck-sdk/tree/master/typescript/companion#readme",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
+    "./node": { "types": "./dist/node.d.ts", "default": "./dist/node.js" }
+  },
+  "files": ["dist", "README.md", "LICENSE"],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "check": "tsc -p tsconfig.json",
+    "test": "node --experimental-strip-types --no-warnings --test test/*.test.ts"
+  },
+  "engines": { "node": ">=22" },
+  "publishConfig": { "access": "public", "provenance": true },
+  "dependencies": { "@knobdeck/protocol": "0.1.0" }
+}

@@ -1,0 +1,51 @@
+name: CI
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        # knobdeck-os has a different implementation per OS; the protocol contract runs on all three.
+        os: [ubuntu-24.04, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      # The parity tests run the TypeScript SDK's plugin next to the Rust one (Node 22.6+ strips types).
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build the TypeScript workspace (the parity tests run its plugin)
+        working-directory: typescript
+        run: npm ci && npm run build
+      - name: cargo test (workspace, all features)
+        run: cargo test --workspace --all-features
+      # The contract crate stays warning-free; the rest of the workspace has older warnings.
+      - name: cargo clippy (knobdeck-protocol)
+        run: cargo clippy -p knobdeck-protocol --all-features --all-targets -- -D warnings
+      - name: CLI builds
+        run: cargo build --bin knobdeck-plugin
+
+  typescript:
+    # The npm workspace (@knobdeck/protocol, sdk, companion): versions agree, builds, type-checks, tests.
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: typescript
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm run versions
+      - run: npm run build
+      - run: npm run check
+      - run: npm test

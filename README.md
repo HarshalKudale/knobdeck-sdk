@@ -71,9 +71,15 @@ steps file to exercise actions:
 ]
 ```
 
-`send_keys` (the only host call) gets a stub answer and is flagged, since it means the action fell
-back to keystrokes; any other host call is refused, as KnobDeck does. It fails when the
+`send_keys` gets a stub answer and is flagged, since it means the action fell back to keystrokes;
+`notify`, `app_state` and `open_dial` get the answers KnobDeck gives; any other host call is refused, as KnobDeck does. It fails when the
 plugin writes anything but protocol messages to stdout.
+
+`knobdeck-plugin conform` checks that a plugin follows the protocol: `ready` and its protocol, `ack`
+and `done` for every invoke, an answer to every request (unknown ones included), unknown frames and
+fields ignored, a clean exit on `shutdown`, nothing but frames on stdout, only defined host calls. It
+runs any command, so a plugin in another language is checked the same way:
+`knobdeck-plugin conform --dir path/to/plugin -- python plugin.py`. Exit code 1 on any failure.
 
 ## Action types
 
@@ -263,7 +269,7 @@ Plugin::new(..).query("scenes", |ctx| Ok(json!([{"value": "1", "label": "Main"}]
 
 `on_ready` fires once after the first sync with a cloneable, `Send` [`Runtime`]; move it into your
 own threads to push `set_state` / `notify` / `notify_matching` / `notify_visual` / `set_error`. `subscribe(&[..])`
-+ `on_event` receive host events (none are defined now; window changes come from `os::window::watch`). `on_shutdown` runs when the host stops the plugin (stdin closes
++ `on_event` receive host events: `dial_opened`, `dial_closed`, `profiles_changed` (names in `knobdeck_sdk::protocol::events`; window changes come from `os::window::watch`). `ctx.toast(msg)` shows the user a short message and `ctx.app_state()` reads KnobDeck's OS, version and dial state; `ctx.open_dial(Some("streaming"))` opens the dial; `rt.has_feature(name)` tells you what the host supports. `Plugin::companions()` and the `companion` module let an add-on inside another app (a Photoshop panel, a Blender add-on) talk to the plugin through KnobDeck's companion hub; the plugin opens no port. `on_shutdown` runs when the host stops the plugin (stdin closes
 or `shutdown` arrives); the host kills it 2 s later.
 
 ## Data and logs
@@ -331,7 +337,8 @@ Run the sign-in in the setup program; the token is kept in the OS credential sto
 ## Protocol v2
 
 One JSON object per line, about plugins only (no foreground, selection or other OS context).
-`hello` carries `host_pid`, KnobDeck's process id. The only `host_call` is `send_keys`. Host → plugin on stdin: `hello` (first), `sync`, `invoke`, `request`
+`hello` carries `host_pid`, KnobDeck's process id. Host calls: `send_keys`, `notify`, `app_state`, `open_dial`, `companion_request`, `companion_links`. Every frame is defined in
+`knobdeck-protocol` and spelled out in [`knobdeck-protocol/REFERENCE.md`](knobdeck-protocol/REFERENCE.md). Host → plugin on stdin: `hello` (first), `sync`, `invoke`, `request`
 (`query` / `wheel`), `event`, `result` (answer to `host_call`), `shutdown`. Plugin → host on stdout:
 `ready` (first), `ack`, `done`, `state`, `error`, `result` (answer to `request`), `host_call`,
 `subscribe`, `setup_required`. Unknown types are ignored. `ready` with `"done": true` promises a
@@ -340,3 +347,11 @@ One JSON object per line, about plugins only (no foreground, selection or other 
 to an `action_id` may carry `"match": {input: value}`, and only instances whose inputs hold those
 values get it (compared as strings; a missing input is `""`). Without it, `fan_out_by` /
 `notify_matching` send one `instance_id` frame per matching instance instead.
+
+## TypeScript packages
+
+`typescript/` is an npm workspace: `@knobdeck/protocol` (types generated from `knobdeck-protocol`),
+`@knobdeck/sdk` (plugins) and `@knobdeck/companion` (companions). Merging a new version to `master`
+publishes it (`.github/workflows/publish-npm.yml`; setup and release steps in
+[`typescript/RELEASING.md`](typescript/RELEASING.md)). Locally: `cd typescript && npm ci && npm run
+build` before `cargo test`, whose parity tests run the TypeScript plugin.
