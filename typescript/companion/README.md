@@ -27,7 +27,7 @@ app.on("toolChanged", (tool) => companion.emit("tool_changed", { tool }));
 
 On the plugin side (Rust): `Plugin::companions()` and `knobdeck_sdk::companion::request(None,
 "set-tool", json!({"tool": "brush"}))`. The frames are the generated layer-2 types
-(`knobdeck-protocol/typescript/protocol.ts`); the spec is `knobdeck-protocol/REFERENCE.md`.
+(`@knobdeck/protocol`); the spec is `knobdeck-protocol/REFERENCE.md`.
 
 Behaviour: tries each hub port until one answers, reconnects with a growing delay (1 s → 30 s),
 pings every 20 s, answers `unsupported` for actions it doesn't know, and drops `emit` calls while

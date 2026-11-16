@@ -1,7 +1,7 @@
 // Generated from the knobdeck-protocol crate (knobdeck-sdk repo). Do not edit: change the Rust
 // types and run `KNOBDECK_BLESS=1 cargo test -p knobdeck-protocol --features schema`.
 
-import type { HostMsg, PluginMsg, CompanionMsg, HubMsg, ClientMsg, ServerMsg } from "./protocol";
+import type { HostMsg, PluginMsg, CompanionMsg, HubMsg, ClientMsg, ServerMsg } from "../src/index.ts";
 
 export const toPlugin: HostMsg[] = [
   {"type":"hello","protocol":2,"plugin_id":"example-rust","data_dir":"/tmp/knobdeck/plugin-data/example-rust","host_version":"1.0.0","features":["state_match","events","notify","app_state","open_dial","companion_hub"],"host_pid":4242},

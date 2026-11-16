@@ -1,0 +1,64 @@
+name: Publish to npm
+# Publishes @knobdeck/protocol, @knobdeck/sdk and @knobdeck/companion when master has a version
+# that isn't on npm yet. Bump "version" in typescript/<package>/package.json to release; protocol
+# goes first because the others depend on its exact version.
+#
+# Needs the repository secret NPM_TOKEN: an npm granular access token with read and write access
+# to the @knobdeck scope (see typescript/RELEASING.md).
+on:
+  push:
+    branches: [master]
+    paths:
+      - "typescript/**"
+      - "knobdeck-protocol/**"
+      - ".github/workflows/publish-npm.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # npm provenance: each version links back to this workflow run
+
+concurrency:
+  group: npm-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: typescript
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: The generated TypeScript matches the Rust definitions
+        working-directory: .
+        run: cargo test -p knobdeck-protocol --features schema --test contract
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - run: npm ci
+      - run: npm run versions
+      - run: npm run build
+      - run: npm run check
+      - run: npm test
+      - name: Publish versions that aren't on npm yet
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -z "$NODE_AUTH_TOKEN" ]; then
+            echo "::error::The NPM_TOKEN secret is not set (Settings → Secrets and variables → Actions)"
+            exit 1
+          fi
+          for pkg in protocol sdk companion; do
+            name=$(node -p "require('./$pkg/package.json').name")
+            version=$(node -p "require('./$pkg/package.json').version")
+            if npm view "$name@$version" version >/dev/null 2>&1; then
+              echo "$name@$version is already on npm"
+            else
+              echo "Publishing $name@$version"
+              npm publish --workspace "$pkg" --access public --provenance
+            fi
+          done

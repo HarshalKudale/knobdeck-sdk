@@ -1,6 +1,6 @@
 // @knobdeck/sdk: KnobDeck plugins in TypeScript.
 //
-// A thin layer over the generated protocol types (knobdeck-protocol/typescript/protocol.ts), with
+// A thin layer over the generated protocol types (@knobdeck/protocol), with
 // the same behaviour as the Rust SDK: `knobdeck-plugin conform` and the parity test check both
 // against one transcript. No OS code here: anything native goes through host calls.
 
@@ -8,13 +8,13 @@ import { createHash } from "node:crypto";
 import { basename } from "node:path";
 import { createInterface } from "node:readline";
 import { parentPort, workerData } from "node:worker_threads";
-import { PROTOCOL } from "../../../knobdeck-protocol/typescript/protocol.ts";
+import { PROTOCOL } from "@knobdeck/protocol";
 import type {
   AppState,
   HostMsg,
   Instance,
   PluginMsg,
-} from "../../../knobdeck-protocol/typescript/protocol.ts";
+} from "@knobdeck/protocol";
 
 export { PROTOCOL };
 export type { AppState, HostMsg, PluginMsg };

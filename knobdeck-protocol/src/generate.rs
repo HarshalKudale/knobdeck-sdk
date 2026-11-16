@@ -213,7 +213,7 @@ fn ts_list(out: &mut String, name: &str, ty: &str, doc: &str, values: &[&str]) {
     let _ = writeln!(out, "export type {ty} = (typeof {name})[number];\n");
 }
 
-/// `typescript/protocol.ts`: every frame as a TypeScript type, plus the protocol constants.
+/// `typescript/protocol/src/index.ts` (the `@knobdeck/protocol` package): every frame as a TypeScript type, plus the protocol constants.
 pub fn typescript() -> String {
     let mut out = String::new();
     let _ = writeln!(out, "// {}\n", HEADER.replace('\n', "\n// "));
@@ -277,7 +277,7 @@ pub fn typescript() -> String {
     out.trim_end().to_string() + "\n"
 }
 
-/// `typescript/fixtures.check.ts`: every fixture frame assigned to the generated union, so
+/// `typescript/protocol/test/fixtures.check.ts`: every fixture frame assigned to the generated union, so
 /// `tsc --strict --noEmit` proves the TypeScript types accept real traffic (excess-property checks
 /// included).
 pub fn typescript_fixture_check() -> String {
@@ -285,7 +285,7 @@ pub fn typescript_fixture_check() -> String {
     let _ = writeln!(out, "// {}
 ", HEADER.replace('\n', "\n// "));
     let unions: Vec<&str> = directions().iter().map(|d| d.union).collect();
-    let _ = writeln!(out, "import type {{ {} }} from \"./protocol\";\n", unions.join(", "));
+    let _ = writeln!(out, "import type {{ {} }} from \"../src/index.ts\";\n", unions.join(", "));
     for Dir { union, var, fixture, dir, .. } in directions() {
         let _ = writeln!(out, "export const {var}: {union}[] = [");
         for f in fixtures::frames(fixture, dir) {
@@ -341,7 +341,7 @@ types can appear without a new protocol number; what may change is in `COMPAT.md
 instances, then `invoke`, `request` and `event` frames as the user works; `shutdown` ends it. A plugin \
 built for protocol `p` runs on hosts that support `{MIN_PROTOCOL}..={PROTOCOL}` today.\n"
     );
-    let _ = writeln!(out, "Machine-readable forms: `schema/*.json` (JSON Schema for each direction of both layers, and `payloads.json`) and `typescript/protocol.ts`.\n");
+    let _ = writeln!(out, "Machine-readable forms: `schema/*.json` (JSON Schema for each direction of both layers, and `payloads.json`) and the npm package `@knobdeck/protocol` (`typescript/protocol/`).\n");
     let lists: [(&str, &[&str]); 5] = [
         ("Features (`hello.features`)", features::ALL),
         ("Events (`ready.subscribe`, `subscribe`, `event.event`)", events::ALL),
@@ -424,8 +424,8 @@ pub fn all() -> Vec<(String, String)> {
         .map(|(name, s)| (format!("schema/{name}"), serde_json::to_string_pretty(&s).unwrap() + "\n"))
         .collect();
     files.push(("schema/payloads.json".into(), serde_json::to_string_pretty(&payload_schema()).unwrap() + "\n"));
-    files.push(("typescript/protocol.ts".into(), typescript()));
-    files.push(("typescript/fixtures.check.ts".into(), typescript_fixture_check()));
+    files.push(("../typescript/protocol/src/index.ts".into(), typescript()));
+    files.push(("../typescript/protocol/test/fixtures.check.ts".into(), typescript_fixture_check()));
     files.push(("REFERENCE.md".into(), reference()));
     files
 }

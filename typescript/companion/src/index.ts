@@ -9,13 +9,13 @@ import {
   COMPANION_PORTS,
   COMPANION_PROTOCOL,
   COMPANION_WS_PATH,
-} from "../../../knobdeck-protocol/typescript/protocol.ts";
+} from "@knobdeck/protocol";
 import type {
   ActionResult,
   CompanionInfo,
   CompanionMsg,
   HubMsg,
-} from "../../../knobdeck-protocol/typescript/protocol.ts";
+} from "@knobdeck/protocol";
 
 export type { ActionResult, CompanionInfo, CompanionMsg, HubMsg };
 export { COMPANION_PORTS, COMPANION_PROTOCOL, COMPANION_WS_PATH };

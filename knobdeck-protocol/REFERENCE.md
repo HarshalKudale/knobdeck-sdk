@@ -6,7 +6,7 @@ A plugin is a process KnobDeck starts. The two talk over the plugin's stdin and 
 
 A session: the host sends `hello`; the plugin answers `ready`; the host sends `sync` with the placed instances, then `invoke`, `request` and `event` frames as the user works; `shutdown` ends it. A plugin built for protocol `p` runs on hosts that support `2..=2` today.
 
-Machine-readable forms: `schema/*.json` (JSON Schema for each direction of both layers, and `payloads.json`) and `typescript/protocol.ts`.
+Machine-readable forms: `schema/*.json` (JSON Schema for each direction of both layers, and `payloads.json`) and the npm package `@knobdeck/protocol` (`typescript/protocol/`).
 
 ## Names
 

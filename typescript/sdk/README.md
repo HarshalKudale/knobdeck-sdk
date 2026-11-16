@@ -1,7 +1,7 @@
 # @knobdeck/sdk
 
 Write KnobDeck plugins in TypeScript. A thin layer over the generated protocol types
-(`knobdeck-protocol/typescript/protocol.ts`), with the same behaviour as the Rust SDK: the parity
+(`@knobdeck/protocol`), with the same behaviour as the Rust SDK: the parity
 test drives the same plugin written with both and requires identical frames, and
 `knobdeck-plugin conform` checks it like any plugin.
 

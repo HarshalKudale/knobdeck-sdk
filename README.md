@@ -347,3 +347,11 @@ One JSON object per line, about plugins only (no foreground, selection or other 
 to an `action_id` may carry `"match": {input: value}`, and only instances whose inputs hold those
 values get it (compared as strings; a missing input is `""`). Without it, `fan_out_by` /
 `notify_matching` send one `instance_id` frame per matching instance instead.
+
+## TypeScript packages
+
+`typescript/` is an npm workspace: `@knobdeck/protocol` (types generated from `knobdeck-protocol`),
+`@knobdeck/sdk` (plugins) and `@knobdeck/companion` (companions). Merging a new version to `master`
+publishes it (`.github/workflows/publish-npm.yml`; setup and release steps in
+[`typescript/RELEASING.md`](typescript/RELEASING.md)). Locally: `cd typescript && npm ci && npm run
+build` before `cargo test`, whose parity tests run the TypeScript plugin.

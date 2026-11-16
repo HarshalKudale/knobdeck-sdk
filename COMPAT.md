@@ -62,7 +62,7 @@ additive and don't count toward the protocol number. New host calls and events f
 `knobdeck-protocol` defines every frame: `HostMsg` (host → plugin) and `PluginMsg` (plugin → host),
 plus the constants both sides need (`PROTOCOL`, `MIN_PROTOCOL`, `features`, `events`, triggers, request
 and host-call methods). The host and this SDK both use it, so a change there changes both at once.
-Generated from it and checked in: `knobdeck-protocol/schema/*.json` (JSON Schema), `typescript/protocol.ts`
+Generated from it and checked in: `knobdeck-protocol/schema/*.json` (JSON Schema), `typescript/protocol/` (the `@knobdeck/protocol` package)
 (TypeScript types and constants) and `REFERENCE.md` (the written spec). CI fails when one is stale, and
 `tsc --strict` checks every fixture frame against the TypeScript types.
 

@@ -3,8 +3,8 @@
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { COMPANION_DISCOVERY_FILE } from "../../../knobdeck-protocol/typescript/protocol.ts";
-import type { Discovery } from "../../../knobdeck-protocol/typescript/protocol.ts";
+import { COMPANION_DISCOVERY_FILE } from "@knobdeck/protocol";
+import type { Discovery } from "@knobdeck/protocol";
 
 export type { Discovery };
 

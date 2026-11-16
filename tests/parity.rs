@@ -32,8 +32,14 @@ fn ts_parity() -> Vec<String> {
     vec!["node".into(), "--experimental-strip-types".into(), "--no-warnings".into(), script.to_string_lossy().into_owned()]
 }
 
+/// Node is installed and the TypeScript workspace is built (`cd typescript && npm ci && npm run build`).
 fn have_node() -> bool {
-    Command::new("node").arg("--version").output().is_ok_and(|o| o.status.success())
+    let node = Command::new("node").arg("--version").output().is_ok_and(|o| o.status.success());
+    let built = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("typescript/node_modules/@knobdeck/protocol/dist/index.js").is_file();
+    if node && !built {
+        eprintln!("skipped: run `npm ci && npm run build` in typescript/ first");
+    }
+    node && built
 }
 
 /// Numbers as f64, so `0.0` (Rust) equals `0` (JavaScript).
