@@ -133,7 +133,8 @@ fn generated_files_are_current() {
         if bless {
             std::fs::create_dir_all(path.parent().unwrap()).unwrap();
             std::fs::write(&path, &text).unwrap();
-        } else if std::fs::read_to_string(&path).ok().as_deref() != Some(text.as_str()) {
+        } else if std::fs::read_to_string(&path).ok().map(|t| t.replace("\r\n", "\n")).as_deref() != Some(text.as_str()) {
+            // (A checkout with CRLF line endings still counts as current.)
             stale.push(rel);
         }
     }
