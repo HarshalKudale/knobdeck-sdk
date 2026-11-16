@@ -10,7 +10,8 @@
 // closes the worker is told to stop and terminated 2 s later; when the worker ends, the connection
 // closes, so KnobDeck sees the plugin exit.
 //
-// Usage: KNOBDECK_RUNNER_TOKEN=… node runner.mjs <socket path or pipe name>
+// Usage: KNOBDECK_RUNNER_TOKEN=… node runner.mjs <socket path or pipe name> [--exit-with-stdin]
+// `--exit-with-stdin`: exit when stdin closes; KnobDeck holds it, so the runner ends with the app.
 
 import { createServer } from "node:net";
 import { Worker } from "node:worker_threads";
@@ -88,6 +89,12 @@ function serve(sock) {
     setTimeout(() => void w.terminate(), 2000).unref();
   });
   sock.on("error", () => {});
+}
+
+if (process.argv.includes("--exit-with-stdin")) {
+  process.stdin.on("end", () => process.exit(0));
+  process.stdin.on("error", () => process.exit(0));
+  process.stdin.resume();
 }
 
 if (!address.startsWith("\\\\") && existsSync(address)) unlinkSync(address);
