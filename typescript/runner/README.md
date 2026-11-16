@@ -7,8 +7,9 @@ One Node process for every TypeScript plugin (PLATFORM_PLAN.md decision 3). Each
 KnobDeck ──stdio── shim (one small process per plugin) ──local socket── runner ──worker── plugin
 ```
 
-- `runner.ts <address>`: listens on a Unix socket path or `\\.\pipe\…`. Each connection's first
-  line is `{"entry": "<plugin JS>"}`; then protocol lines pass through unchanged. Closing the
+- `runner.mjs <address>` (plain JS, run by any Node LTS): listens on a Unix socket path or
+  `\\.\pipe\…`. Each connection's first line is `{"token": …, "entry": "<plugin JS>"}` (the token
+  from `KNOBDECK_RUNNER_TOKEN`, so other users can't load code into it); then protocol lines pass through unchanged. Closing the
   connection stops the worker (terminated after 2 s); the worker ending closes the connection.
 - `shim.ts <address> <entry>`: what the host's native shim will do, in Node, for tests.
 - `@knobdeck/sdk` notices it is in a runner worker and talks over the parent port instead of stdio.

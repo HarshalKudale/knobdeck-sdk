@@ -1,6 +1,8 @@
 {
   "compilerOptions": {
     "strict": true,
+    "allowJs": true,
+    "checkJs": true,
     "noEmit": true,
     "target": "es2022",
     "module": "nodenext",
@@ -10,5 +12,5 @@
     "types": ["node"],
     "skipLibCheck": true
   },
-  "include": ["src/**/*.ts", "test/**/*.ts", "examples/**/*.ts", "../runner/*.ts", "../../knobdeck-protocol/typescript/protocol.ts"]
+  "include": ["src/**/*.ts", "test/**/*.ts", "examples/**/*.ts", "../runner/*.ts", "../runner/*.mjs", "../../knobdeck-protocol/typescript/protocol.ts"]
 }

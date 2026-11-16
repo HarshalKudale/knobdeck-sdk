@@ -151,6 +151,17 @@ pub mod host_calls {
 
 pub mod companion;
 pub mod control;
+
+/// TypeScript plugins: KnobDeck runs them all in one shared Node process (`typescript/runner`).
+pub mod node {
+    /// The runner, plain JavaScript for any Node LTS. The host writes it to its data folder and
+    /// starts it as `node runner.mjs <address>` with [`TOKEN_ENV`] set.
+    pub const RUNNER_JS: &str = include_str!("../../typescript/runner/runner.mjs");
+    /// The runner refuses a connection whose first line doesn't carry this token.
+    pub const TOKEN_ENV: &str = "KNOBDECK_RUNNER_TOKEN";
+    /// The oldest Node major the runner and `@knobdeck/sdk` support.
+    pub const MIN_NODE_MAJOR: u32 = 22;
+}
 #[cfg(feature = "schema")]
 pub mod generate;
 

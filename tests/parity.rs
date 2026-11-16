@@ -198,10 +198,13 @@ fn the_shared_runner_gives_the_same_transcript() {
     } else {
         std::env::temp_dir().join(format!("knobdeck-runner-test-{}.sock", std::process::id())).to_string_lossy().into_owned()
     };
+    let token = format!("t{}", std::process::id());
+    // The worker inherits the runner's flags, so it can load the .ts example.
     let mut runner = Command::new("node")
         .args(["--experimental-strip-types", "--no-warnings"])
-        .arg(root.join("runner/runner.ts"))
+        .arg(root.join("runner/runner.mjs"))
         .arg(&address)
+        .env("KNOBDECK_RUNNER_TOKEN", &token)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
@@ -228,6 +231,10 @@ fn the_shared_runner_gives_the_same_transcript() {
         address.clone(),
         root.join("sdk/examples/parity.ts").to_string_lossy().into_owned(),
     ];
+    // A wrong token: the runner closes the connection before loading anything.
+    let refused = Command::new(&shim[0]).args(&shim[1..]).env("KNOBDECK_RUNNER_TOKEN", "wrong").stdin(Stdio::null()).output().unwrap();
+    assert!(refused.stdout.is_empty(), "no frames without the token");
+    std::env::set_var("KNOBDECK_RUNNER_TOKEN", &token); // inherited by the shims below
     let rust = transcript(&[rust_parity().to_string_lossy().into_owned()]);
     let runs: Vec<_> = (0..2).map(|_| {
         let shim = shim.clone();
@@ -244,6 +251,7 @@ fn the_shared_runner_gives_the_same_transcript() {
     let _ = runner.wait();
     let log = loaded.lock().unwrap().join("\n");
     assert_eq!(log.matches("loading ").count(), 2, "both plugins ran in the one runner:\n{log}");
+    assert!(log.contains("refused a connection: wrong token"), "{log}");
     if !cfg!(windows) {
         let _ = std::fs::remove_file(&address);
     }
