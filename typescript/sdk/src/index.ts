@@ -7,6 +7,7 @@
 import { createHash } from "node:crypto";
 import { basename } from "node:path";
 import { createInterface } from "node:readline";
+import { parentPort, workerData } from "node:worker_threads";
 import { PROTOCOL } from "../../../knobdeck-protocol/typescript/protocol.ts";
 import type {
   AppState,
@@ -118,6 +119,40 @@ export interface HostEvent {
   payload: unknown;
 }
 
+/** Where frames come from and go to: stdio for a plugin run on its own, the parent thread when
+ * KnobDeck's shared Node runner loads it in a worker. */
+interface Transport {
+  send(line: string): void;
+  onLine(f: (line: string) => void): void;
+  onClose(f: () => void): void;
+}
+
+function stdioTransport(): Transport {
+  const lines = createInterface({ input: process.stdin, crlfDelay: Infinity });
+  return {
+    send: (line) => void process.stdout.write(line + "\n"),
+    onLine: (f) => void lines.on("line", f),
+    onClose: (f) => void lines.on("close", f),
+  };
+}
+
+/** In a runner worker: lines arrive as string messages; `null` means the host went away. */
+function workerTransport(port: NonNullable<typeof parentPort>): Transport {
+  let onLine: (l: string) => void = () => {};
+  let onClose: () => void = () => {};
+  port.on("message", (m: unknown) => (typeof m === "string" ? onLine(m) : onClose()));
+  return {
+    send: (line) => port.postMessage(line),
+    onLine: (f) => void (onLine = f),
+    onClose: (f) => void (onClose = f),
+  };
+}
+
+function transport(): Transport {
+  const inRunner = parentPort && (workerData as { knobdeck?: boolean } | undefined)?.knobdeck;
+  return inRunner ? workerTransport(parentPort!) : stdioTransport();
+}
+
 function log(msg: string): void {
   process.stderr.write(`[${new Date().toISOString()}] ${msg}\n`);
 }
@@ -133,14 +168,17 @@ export class Runtime {
   #pending = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
   #next = 1;
 
-  constructor(pluginId: string, dataDir: string, features: string[]) {
+  #write: (line: string) => void;
+
+  constructor(pluginId: string, dataDir: string, features: string[], write: (line: string) => void = (l) => void process.stdout.write(l + "\n")) {
     this.pluginId = pluginId;
     this.dataDir = dataDir;
     this.features = features;
+    this.#write = write;
   }
 
   /** @internal */ send(msg: PluginMsg): void {
-    process.stdout.write(JSON.stringify(msg) + "\n");
+    this.#write(JSON.stringify(msg));
     if (msg.type === "state" && msg.state !== undefined) {
       if (msg.instance_id) this.states.set(msg.instance_id, msg.state);
       else if (msg.action_id) {
@@ -338,7 +376,8 @@ export class Plugin {
     return full;
   }
 
-  /** Start: codegen when KNOBDECK_CODEGEN=1, else the stdio protocol until shutdown. */
+  /** Start: codegen when KNOBDECK_CODEGEN=1, else the protocol until shutdown (over stdio, or
+   * over the parent thread inside KnobDeck's shared Node runner). */
   run(): void {
     if (process.env.KNOBDECK_CODEGEN === "1") {
       const out = this.codegen(basename(process.argv[1] ?? "plugin.ts"));
@@ -349,14 +388,15 @@ export class Plugin {
     console.log = console.info = console.debug = (...a: unknown[]) => log(a.map(String).join(" "));
     let rt: Runtime | undefined;
     const queues = new Map<string, Promise<void>>();
-    const lines = createInterface({ input: process.stdin, crlfDelay: Infinity });
+    const io = transport();
+    // In a runner worker, process.exit() ends only this worker.
     const finish = () => {
       if (rt) this.#onShutdown?.(rt);
       log("shutdown");
       process.exit(0);
     };
-    lines.on("close", finish);
-    lines.on("line", (line) => {
+    io.onClose(finish);
+    io.onLine((line) => {
       let msg: HostMsg;
       try {
         msg = JSON.parse(line) as HostMsg;
@@ -367,7 +407,7 @@ export class Plugin {
       if (!rt) {
         if (msg.type !== "hello") return log(`expected hello, got: ${line}`);
         if (msg.protocol !== PROTOCOL) log(`host speaks protocol ${msg.protocol}, this SDK speaks ${PROTOCOL}`);
-        rt = new Runtime(msg.plugin_id || this.meta.id, msg.data_dir, msg.features ?? []);
+        rt = new Runtime(msg.plugin_id || this.meta.id, msg.data_dir, msg.features ?? [], io.send);
         const subscribe: string[] = [];
         for (const e of this.#subscriptions.map((s) => s.trim())) if (e && !subscribe.includes(e)) subscribe.push(e);
         rt.send({ type: "ready", protocol: PROTOCOL, subscribe, done: true });

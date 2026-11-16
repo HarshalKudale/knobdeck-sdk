@@ -182,3 +182,69 @@ fn the_typescript_plugin_conforms() {
     assert!(out.status.success(), "{text}{}", String::from_utf8_lossy(&out.stderr));
     std::fs::remove_dir_all(&dir).ok();
 }
+
+/// TypeScript plugins in KnobDeck share one Node process (`typescript/runner`), each in a worker.
+/// Through the runner (and the shim the host starts per plugin), the parity plugin must still give
+/// the Rust transcript, with two plugins running in the same runner at once.
+#[test]
+fn the_shared_runner_gives_the_same_transcript() {
+    if !have_node() {
+        eprintln!("skipped: node not installed");
+        return;
+    }
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("typescript");
+    let address = if cfg!(windows) {
+        format!(r"\\.\pipe\knobdeck-runner-test-{}", std::process::id())
+    } else {
+        std::env::temp_dir().join(format!("knobdeck-runner-test-{}.sock", std::process::id())).to_string_lossy().into_owned()
+    };
+    let mut runner = Command::new("node")
+        .args(["--experimental-strip-types", "--no-warnings"])
+        .arg(root.join("runner/runner.ts"))
+        .arg(&address)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    // Wait for "listening on", then keep draining the runner's log.
+    let mut log = BufReader::new(runner.stderr.take().unwrap());
+    let mut first = String::new();
+    log.read_line(&mut first).unwrap();
+    assert!(first.contains("listening on"), "{first}");
+    let loaded = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let sink = loaded.clone();
+    std::thread::spawn(move || {
+        for line in log.lines().map_while(Result::ok) {
+            sink.lock().unwrap().push(line);
+        }
+    });
+
+    let shim: Vec<String> = vec![
+        "node".into(),
+        "--experimental-strip-types".into(),
+        "--no-warnings".into(),
+        root.join("runner/shim.ts").to_string_lossy().into_owned(),
+        address.clone(),
+        root.join("sdk/examples/parity.ts").to_string_lossy().into_owned(),
+    ];
+    let rust = transcript(&[rust_parity().to_string_lossy().into_owned()]);
+    let runs: Vec<_> = (0..2).map(|_| {
+        let shim = shim.clone();
+        std::thread::spawn(move || transcript(&shim))
+    }).collect();
+    for run in runs {
+        let ts = run.join().unwrap();
+        for (i, (r, t)) in rust.iter().zip(&ts).enumerate() {
+            assert_eq!(r, t, "frame {i} differs through the runner:\n  rust: {r}\n  ts:   {t}");
+        }
+        assert_eq!(rust.len(), ts.len());
+    }
+    let _ = runner.kill();
+    let _ = runner.wait();
+    let log = loaded.lock().unwrap().join("\n");
+    assert_eq!(log.matches("loading ").count(), 2, "both plugins ran in the one runner:\n{log}");
+    if !cfg!(windows) {
+        let _ = std::fs::remove_file(&address);
+    }
+}
