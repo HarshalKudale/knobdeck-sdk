@@ -3,8 +3,9 @@ name: Publish to npm
 # that isn't on npm yet. Bump "version" in typescript/<package>/package.json to release; protocol
 # goes first because the others depend on its exact version.
 #
-# Needs the repository secret NPM_TOKEN: an npm granular access token with read and write access
-# to the @knobdeck scope (see typescript/RELEASING.md).
+# No token: npm Trusted Publishing. npm trusts this workflow (repository Knobdeck/knobdeck-sdk,
+# file publish-npm.yml, environment npm) through GitHub's OIDC, set up once per package on
+# npmjs.com (typescript/RELEASING.md). Provenance is attached automatically.
 on:
   push:
     branches: [master]
@@ -16,7 +17,7 @@ on:
 
 permissions:
   contents: read
-  id-token: write # npm provenance: each version links back to this workflow run
+  id-token: write # OIDC for npm Trusted Publishing (and provenance)
 
 concurrency:
   group: npm-publish
@@ -25,6 +26,9 @@ concurrency:
 jobs:
   publish:
     runs-on: ubuntu-24.04
+    # Named in each package's Trusted Publisher settings; add required reviewers to it on GitHub to
+    # approve every release by hand.
+    environment: npm
     defaults:
       run:
         working-directory: typescript
@@ -39,19 +43,15 @@ jobs:
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
+      # Trusted publishing needs npm 11.5.1+; Node 22 ships npm 10.
+      - run: npm install -g npm@11.21.1
       - run: npm ci
       - run: npm run versions
       - run: npm run build
       - run: npm run check
       - run: npm test
       - name: Publish versions that aren't on npm yet
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          if [ -z "$NODE_AUTH_TOKEN" ]; then
-            echo "::error::The NPM_TOKEN secret is not set (Settings → Secrets and variables → Actions)"
-            exit 1
-          fi
           for pkg in protocol sdk companion; do
             name=$(node -p "require('./$pkg/package.json').name")
             version=$(node -p "require('./$pkg/package.json').version")
@@ -59,6 +59,6 @@ jobs:
               echo "$name@$version is already on npm"
             else
               echo "Publishing $name@$version"
-              npm publish --workspace "$pkg" --access public --provenance
+              npm publish --workspace "$pkg" --access public
             fi
           done
