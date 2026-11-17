@@ -1,4 +1,5 @@
 {"dir":"to_server","frame":{"type":"hello","protocol":1,"token":"9f2c…","client":"obs-script"}}
+{"dir":"to_server","frame":{"type":"hello","protocol":1,"token":"9f2c…","client":"knobdeck-mcp","assistant":true}}
 {"dir":"to_server","frame":{"type":"request","id":"1","cmd":"open_dial","params":{"profile_id":"streaming"}}}
 {"dir":"to_server","frame":{"type":"request","id":"2","cmd":"run_item","params":{"profile_id":"streaming","item_id":"mute-mic"}}}
 {"dir":"to_server","frame":{"type":"request","id":"3","cmd":"run_item","params":{"profile_id":"streaming","item_id":"volume","value":40.0}}}
@@ -6,10 +7,12 @@
 {"dir":"to_server","frame":{"type":"request","id":"5","cmd":"subscribe","params":{"events":["dial_opened","dial_closed"]}}}
 {"dir":"to_server","frame":{"type":"request","id":"6","cmd":"close_dial","params":{}}}
 {"dir":"to_server","frame":{"type":"request","id":"7","cmd":"list_plugins","params":{}}}
-{"dir":"to_client","frame":{"type":"ready","protocol":1,"host_version":"1.0.0","commands":["open_dial","close_dial","run_item","list_profiles","list_plugins","subscribe"]}}
+{"dir":"to_server","frame":{"type":"request","id":"8","cmd":"list_items","params":{"profile_id":"streaming"}}}
+{"dir":"to_client","frame":{"type":"ready","protocol":1,"host_version":"1.0.0","commands":["open_dial","close_dial","run_item","list_profiles","list_plugins","subscribe","list_items"]}}
 {"dir":"to_client","frame":{"type":"refused","reason":"wrong token"}}
 {"dir":"to_client","frame":{"type":"response","id":"1","ok":true,"result":true}}
-{"dir":"to_client","frame":{"type":"response","id":"4","ok":true,"result":[{"id":"default","name":"Default","default":true},{"id":"streaming","name":"Streaming","default":false}]}}
+{"dir":"to_client","frame":{"type":"response","id":"4","ok":true,"result":[{"id":"default","name":"Default","default":true},{"id":"streaming","name":"Streaming","default":false,"assistant":true}]}}
 {"dir":"to_client","frame":{"type":"response","id":"7","ok":true,"result":[{"id":"obs","name":"OBS Studio","version":"1.4.0","status":"running"}]}}
+{"dir":"to_client","frame":{"type":"response","id":"8","ok":true,"result":[{"id":"mute-mic","label":"Mute Mic","kind":"toggle","plugin":"discord"},{"id":"volume","label":"Volume","kind":"slider","min":0.0,"max":100.0,"unit":"%"},{"id":"scene-live","label":"Live","kind":"button","plugin":"obs","folder":"Scenes"}]}}
 {"dir":"to_client","frame":{"type":"response","id":"2","ok":false,"error":"no item \"mute-mic\" in dial profile \"streaming\""}}
 {"dir":"to_client","frame":{"type":"event","event":"dial_opened","payload":{"profile_id":"streaming"}}}

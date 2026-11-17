@@ -40,11 +40,14 @@ pub mod commands {
     pub const LIST_PROFILES: &str = "list_profiles";
     /// `params`: `{}`. Answers a list of [`PluginSummary`](super::PluginSummary).
     pub const LIST_PLUGINS: &str = "list_plugins";
+    /// `params`: [`ListItems`](super::ListItems). Answers a list of
+    /// [`ItemSummary`](super::ItemSummary): every item on that profile, folders' items included.
+    pub const LIST_ITEMS: &str = "list_items";
     /// `params`: [`Subscribe`](super::Subscribe). Replaces this connection's subscriptions to the
     /// host events (`dial_opened`, `dial_closed`, `profiles_changed`); they arrive as `event`.
     pub const SUBSCRIBE: &str = "subscribe";
 
-    pub const ALL: &[&str] = &[OPEN_DIAL, CLOSE_DIAL, RUN_ITEM, LIST_PROFILES, LIST_PLUGINS, SUBSCRIBE];
+    pub const ALL: &[&str] = &[OPEN_DIAL, CLOSE_DIAL, RUN_ITEM, LIST_PROFILES, LIST_PLUGINS, SUBSCRIBE, LIST_ITEMS];
 }
 
 /// A line a client sends.
@@ -60,6 +63,11 @@ pub enum ClientMsg {
         /// Who is calling, for KnobDeck's log ("obs-script", "raycast").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         client: Option<String>,
+        /// This client acts for an AI assistant (KnobDeck's MCP server). KnobDeck then lists,
+        /// opens and runs only profiles the user opened to assistants
+        /// ([`ProfileSummary::assistant`]).
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        assistant: bool,
     },
     /// Run a command; answered by a `response` with the same `id`.
     Request {
@@ -140,6 +148,42 @@ pub struct ProfileSummary {
     /// The profile the dial keybind opens when no auto-open rule matches.
     #[serde(default)]
     pub default: bool,
+    /// The user lets AI assistants see and run this profile's items.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub assistant: bool,
+}
+
+/// `params` of `list_items`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
+pub struct ListItems {
+    /// A dial profile id (`list_profiles`).
+    pub profile_id: String,
+}
+
+/// One item in `list_items`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
+pub struct ItemSummary {
+    /// The id `run_item` takes.
+    pub id: String,
+    /// The label the user sees on the dial.
+    pub label: String,
+    /// `button`, `toggle`, `slider`, `dynamic`, `multi` or `folder`.
+    pub kind: String,
+    /// The plugin that runs it; none for KnobDeck's own actions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plugin: Option<String>,
+    /// The folder it sits in, by label (`Streaming / Scenes`); none at the top level.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub folder: Option<String>,
+    /// A slider's range and unit: `run_item` takes a `value` in it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unit: Option<String>,
 }
 
 /// One plugin in `list_plugins`.

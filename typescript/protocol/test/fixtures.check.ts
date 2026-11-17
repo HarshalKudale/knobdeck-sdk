@@ -64,6 +64,7 @@ export const toCompanion: HubMsg[] = [
 
 export const toServer: ClientMsg[] = [
   {"type":"hello","protocol":1,"token":"9f2c…","client":"obs-script"},
+  {"type":"hello","protocol":1,"token":"9f2c…","client":"knobdeck-mcp","assistant":true},
   {"type":"request","id":"1","cmd":"open_dial","params":{"profile_id":"streaming"}},
   {"type":"request","id":"2","cmd":"run_item","params":{"profile_id":"streaming","item_id":"mute-mic"}},
   {"type":"request","id":"3","cmd":"run_item","params":{"profile_id":"streaming","item_id":"volume","value":40.0}},
@@ -71,14 +72,16 @@ export const toServer: ClientMsg[] = [
   {"type":"request","id":"5","cmd":"subscribe","params":{"events":["dial_opened","dial_closed"]}},
   {"type":"request","id":"6","cmd":"close_dial","params":{}},
   {"type":"request","id":"7","cmd":"list_plugins","params":{}},
+  {"type":"request","id":"8","cmd":"list_items","params":{"profile_id":"streaming"}},
 ];
 
 export const toClient: ServerMsg[] = [
-  {"type":"ready","protocol":1,"host_version":"1.0.0","commands":["open_dial","close_dial","run_item","list_profiles","list_plugins","subscribe"]},
+  {"type":"ready","protocol":1,"host_version":"1.0.0","commands":["open_dial","close_dial","run_item","list_profiles","list_plugins","subscribe","list_items"]},
   {"type":"refused","reason":"wrong token"},
   {"type":"response","id":"1","ok":true,"result":true},
-  {"type":"response","id":"4","ok":true,"result":[{"id":"default","name":"Default","default":true},{"id":"streaming","name":"Streaming","default":false}]},
+  {"type":"response","id":"4","ok":true,"result":[{"id":"default","name":"Default","default":true},{"id":"streaming","name":"Streaming","default":false,"assistant":true}]},
   {"type":"response","id":"7","ok":true,"result":[{"id":"obs","name":"OBS Studio","version":"1.4.0","status":"running"}]},
+  {"type":"response","id":"8","ok":true,"result":[{"id":"mute-mic","label":"Mute Mic","kind":"toggle","plugin":"discord"},{"id":"volume","label":"Volume","kind":"slider","min":0.0,"max":100.0,"unit":"%"},{"id":"scene-live","label":"Live","kind":"button","plugin":"obs","folder":"Scenes"}]},
   {"type":"response","id":"2","ok":false,"error":"no item \"mute-mic\" in dial profile \"streaming\""},
   {"type":"event","event":"dial_opened","payload":{"profile_id":"streaming"}},
 ];
