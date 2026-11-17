@@ -101,6 +101,64 @@
       ],
       "description": "What the hub writes to [`DISCOVERY_FILE`]."
     },
+    "ItemSummary": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "The id `run_item` takes."
+        },
+        "label": {
+          "type": "string",
+          "description": "The label the user sees on the dial."
+        },
+        "kind": {
+          "type": "string",
+          "description": "`button`, `toggle`, `slider`, `dynamic`, `multi` or `folder`."
+        },
+        "plugin": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The plugin that runs it; none for KnobDeck's own actions."
+        },
+        "folder": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The folder it sits in, by label (`Streaming / Scenes`); none at the top level."
+        },
+        "min": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double",
+          "description": "A slider's range and unit: `run_item` takes a `value` in it."
+        },
+        "max": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "unit": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "kind"
+      ],
+      "description": "One item in `list_items`."
+    },
     "Link": {
       "type": "object",
       "properties": {
@@ -210,6 +268,19 @@
       ],
       "description": "`params` of the `companion_request` host call."
     },
+    "ListItems": {
+      "type": "object",
+      "properties": {
+        "profile_id": {
+          "type": "string",
+          "description": "A dial profile id (`list_profiles`)."
+        }
+      },
+      "required": [
+        "profile_id"
+      ],
+      "description": "`params` of `list_items`."
+    },
     "Notify": {
       "type": "object",
       "properties": {
@@ -283,6 +354,10 @@
           "type": "boolean",
           "description": "The profile the dial keybind opens when no auto-open rule matches.",
           "default": false
+        },
+        "assistant": {
+          "type": "boolean",
+          "description": "The user lets AI assistants see and run this profile's items."
         }
       },
       "required": [

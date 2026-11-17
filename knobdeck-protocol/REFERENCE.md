@@ -399,7 +399,7 @@ Run an action in the app; answered by a `response` with the same `id`.
 
 ## Control client → KnobDeck (layer 3)
 
-A local program drives KnobDeck over a Unix socket (`<runtime folder>/knobdeck/control.sock`) on macOS and Linux or a named pipe (`\\.\pipe\knobdeck-control-<user name>`) on Windows, one JSON object per line. Off by default (`controlApi.enabled` in settings). The first line is `hello` with the token from `control-token` in KnobDeck's data folder. Commands: `open_dial`, `close_dial`, `run_item`, `list_profiles`, `list_plugins`, `subscribe`. Control protocol 1.
+A local program drives KnobDeck over a Unix socket (`<runtime folder>/knobdeck/control.sock`) on macOS and Linux or a named pipe (`\\.\pipe\knobdeck-control-<user name>`) on Windows, one JSON object per line. Off by default (`controlApi.enabled` in settings). The first line is `hello` with the token from `control-token` in KnobDeck's data folder. Commands: `open_dial`, `close_dial`, `run_item`, `list_profiles`, `list_plugins`, `subscribe`, `list_items`. Control protocol 1.
 
 ### `hello`
 
@@ -410,9 +410,11 @@ The first line.
 | `protocol` | `number` | yes |  |
 | `token` | `string` | yes | The contents of `TOKEN_FILE`, trimmed. |
 | `client` | `string` | no | Who is calling, for KnobDeck's log ("obs-script", "raycast"). |
+| `assistant` | `boolean` | no | This client acts for an AI assistant (KnobDeck's MCP server). KnobDeck then lists, opens and runs only profiles the user opened to assistants (`ProfileSummary::assistant`). |
 
 ```json
 {"type":"hello","protocol":1,"token":"9f2c…","client":"obs-script"}
+{"type":"hello","protocol":1,"token":"9f2c…","client":"knobdeck-mcp","assistant":true}
 ```
 
 ### `request`
@@ -433,6 +435,7 @@ Run a command; answered by a `response` with the same `id`.
 {"type":"request","id":"5","cmd":"subscribe","params":{"events":["dial_opened","dial_closed"]}}
 {"type":"request","id":"6","cmd":"close_dial","params":{}}
 {"type":"request","id":"7","cmd":"list_plugins","params":{}}
+{"type":"request","id":"8","cmd":"list_items","params":{"profile_id":"streaming"}}
 ```
 
 ## KnobDeck → control client (layer 3)
@@ -448,7 +451,7 @@ Run a command; answered by a `response` with the same `id`.
 | `commands` | `string[]` | yes | The `commands` this KnobDeck takes. |
 
 ```json
-{"type":"ready","protocol":1,"host_version":"1.0.0","commands":["open_dial","close_dial","run_item","list_profiles","list_plugins","subscribe"]}
+{"type":"ready","protocol":1,"host_version":"1.0.0","commands":["open_dial","close_dial","run_item","list_profiles","list_plugins","subscribe","list_items"]}
 ```
 
 ### `refused`
@@ -476,8 +479,9 @@ The answer to a `request`.
 
 ```json
 {"type":"response","id":"1","ok":true,"result":true}
-{"type":"response","id":"4","ok":true,"result":[{"id":"default","name":"Default","default":true},{"id":"streaming","name":"Streaming","default":false}]}
+{"type":"response","id":"4","ok":true,"result":[{"id":"default","name":"Default","default":true},{"id":"streaming","name":"Streaming","default":false,"assistant":true}]}
 {"type":"response","id":"7","ok":true,"result":[{"id":"obs","name":"OBS Studio","version":"1.4.0","status":"running"}]}
+{"type":"response","id":"8","ok":true,"result":[{"id":"mute-mic","label":"Mute Mic","kind":"toggle","plugin":"discord"},{"id":"volume","label":"Volume","kind":"slider","min":0.0,"max":100.0,"unit":"%"},{"id":"scene-live","label":"Live","kind":"button","plugin":"obs","folder":"Scenes"}]}
 {"type":"response","id":"2","ok":false,"error":"no item \"mute-mic\" in dial profile \"streaming\""}
 ```
 
@@ -539,6 +543,21 @@ What the hub writes to `DISCOVERY_FILE`.
 | `path` | `string` | yes | `WS_PATH`. |
 | `token` | `string` | yes | Sent back in `hello.token`. A companion that can't read files (a browser extension) connects without it, from an extension origin. |
 
+### `ItemSummary`
+
+One item in `list_items`.
+
+| Field | Type | Required | Meaning |
+|---|---|---|---|
+| `id` | `string` | yes | The id `run_item` takes. |
+| `label` | `string` | yes | The label the user sees on the dial. |
+| `kind` | `string` | yes | `button`, `toggle`, `slider`, `dynamic`, `multi` or `folder`. |
+| `plugin` | `string` | no | The plugin that runs it; none for KnobDeck's own actions. |
+| `folder` | `string` | no | The folder it sits in, by label (`Streaming / Scenes`); none at the top level. |
+| `min` | `number` | no | A slider's range and unit: `run_item` takes a `value` in it. |
+| `max` | `number` | no |  |
+| `unit` | `string` | no |  |
+
 ### `Link`
 
 One connected companion, as the plugin sees it (`companion_connected`, `companion_links`).
@@ -582,6 +601,14 @@ Payload of `companion_disconnected`.
 | `params` | `unknown` | no |  |
 | `timeout_ms` | `number` | no | How long to wait for the companion (default 5000, at most 30000). |
 
+### `ListItems`
+
+`params` of `list_items`.
+
+| Field | Type | Required | Meaning |
+|---|---|---|---|
+| `profile_id` | `string` | yes | A dial profile id (`list_profiles`). |
+
 ### `Notify`
 
 `params` of the `notify` host call.
@@ -619,6 +646,7 @@ One dial profile in `list_profiles`.
 | `id` | `string` | yes |  |
 | `name` | `string` | yes |  |
 | `default` | `boolean` | no | The profile the dial keybind opens when no auto-open rule matches. |
+| `assistant` | `boolean` | no | The user lets AI assistants see and run this profile's items. |
 
 ### `RunItem`
 

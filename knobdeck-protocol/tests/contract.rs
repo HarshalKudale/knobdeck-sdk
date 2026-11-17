@@ -161,7 +161,7 @@ fn companion_payloads_in_the_plugin_fixtures_fit_their_types() {
 
 #[test]
 fn every_control_line_round_trips() {
-    use knobdeck_protocol::control::{commands, ClientMsg, PluginSummary, ProfileSummary, RunItem, ServerMsg, Subscribe, FIXTURES_V1};
+    use knobdeck_protocol::control::{commands, ClientMsg, ItemSummary, ListItems, PluginSummary, ProfileSummary, RunItem, ServerMsg, Subscribe, FIXTURES_V1};
     use knobdeck_protocol::OpenDial;
     let raw = |dir: &str| -> Vec<String> {
         FIXTURES_V1
@@ -183,6 +183,7 @@ fn every_control_line_round_trips() {
                 commands::OPEN_DIAL => drop(serde_json::from_value::<OpenDial>(params).unwrap()),
                 commands::RUN_ITEM => drop(serde_json::from_value::<RunItem>(params).unwrap()),
                 commands::SUBSCRIBE => drop(serde_json::from_value::<Subscribe>(params).unwrap()),
+                commands::LIST_ITEMS => drop(serde_json::from_value::<ListItems>(params).unwrap()),
                 _ => {}
             }
             cmds.push(cmd);
@@ -199,6 +200,7 @@ fn every_control_line_round_trips() {
             match id.as_str() {
                 "4" => drop(serde_json::from_value::<Vec<ProfileSummary>>(r.clone()).unwrap()),
                 "7" => drop(serde_json::from_value::<Vec<PluginSummary>>(r.clone()).unwrap()),
+                "8" => drop(serde_json::from_value::<Vec<ItemSummary>>(r.clone()).unwrap()),
                 _ => {}
             }
         }

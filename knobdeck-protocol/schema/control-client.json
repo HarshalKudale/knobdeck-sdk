@@ -26,6 +26,10 @@
             "string",
             "null"
           ]
+        },
+        "assistant": {
+          "description": "This client acts for an AI assistant (KnobDeck's MCP server). KnobDeck then lists,\nopens and runs only profiles the user opened to assistants\n([`ProfileSummary::assistant`]).",
+          "type": "boolean"
         }
       },
       "required": [

@@ -64,6 +64,8 @@ pub fn payload_defs() -> BTreeMap<String, Value> {
     g.subschema_for::<control::Subscribe>();
     g.subschema_for::<control::ProfileSummary>();
     g.subschema_for::<control::PluginSummary>();
+    g.subschema_for::<control::ListItems>();
+    g.subschema_for::<control::ItemSummary>();
     g.take_definitions(true).into_iter().collect()
 }
 

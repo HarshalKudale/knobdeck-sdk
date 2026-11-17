@@ -25,7 +25,7 @@ export const CONTROL_PIPE_PREFIX = "\\\\.\\pipe\\knobdeck-control-";
 export const CONTROL_TOKEN_FILE = "control-token";
 
 /** Commands of the control API. */
-export const CONTROL_COMMANDS = ["open_dial", "close_dial", "run_item", "list_profiles", "list_plugins", "subscribe"] as const;
+export const CONTROL_COMMANDS = ["open_dial", "close_dial", "run_item", "list_profiles", "list_plugins", "subscribe", "list_items"] as const;
 export type ControlCommand = (typeof CONTROL_COMMANDS)[number];
 
 /** Optional host behaviour, listed in `hello.features`. */
@@ -188,6 +188,24 @@ export interface Invoke {
   child_id?: string;
 }
 
+/** One item in `list_items`. */
+export interface ItemSummary {
+  /** The id `run_item` takes. */
+  id: string;
+  /** The label the user sees on the dial. */
+  label: string;
+  /** `button`, `toggle`, `slider`, `dynamic`, `multi` or `folder`. */
+  kind: string;
+  /** The plugin that runs it; none for KnobDeck's own actions. */
+  plugin?: string;
+  /** The folder it sits in, by label (`Streaming / Scenes`); none at the top level. */
+  folder?: string;
+  /** A slider's range and unit: `run_item` takes a `value` in it. */
+  min?: number;
+  max?: number;
+  unit?: string;
+}
+
 /** One connected companion, as the plugin sees it (`companion_connected`, `companion_links`). */
 export interface Link {
   /** The hub's id for this link; pass it to `companion_request`. */
@@ -226,6 +244,12 @@ export interface LinkRequest {
   timeout_ms?: number;
 }
 
+/** `params` of `list_items`. */
+export interface ListItems {
+  /** A dial profile id (`list_profiles`). */
+  profile_id: string;
+}
+
 /** `params` of the `notify` host call. */
 export interface Notify {
   /** One short sentence. The host may shorten long text. */
@@ -258,6 +282,8 @@ export interface ProfileSummary {
   name: string;
   /** The profile the dial keybind opens when no auto-open rule matches. */
   default?: boolean;
+  /** The user lets AI assistants see and run this profile's items. */
+  assistant?: boolean;
 }
 
 /** `params` of `run_item`. */
@@ -509,6 +535,12 @@ export interface ClientHello {
   token: string;
   /** Who is calling, for KnobDeck's log ("obs-script", "raycast"). */
   client?: string;
+  /**
+   * This client acts for an AI assistant (KnobDeck's MCP server). KnobDeck then lists,
+   * opens and runs only profiles the user opened to assistants
+   * (`ProfileSummary::assistant`).
+   */
+  assistant?: boolean;
 }
 
 /** Run a command; answered by a `response` with the same `id`. */
